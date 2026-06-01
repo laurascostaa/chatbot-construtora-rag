@@ -20,6 +20,8 @@ Depois abra essa pasta com o arquivo dentro, abra um terminal nela clicando com 
 
 docker-compose up -d
 
+ou para macbook: docker compose up -d
+
 Aguarde o docker baixar e subir os containers dos aplicativos.
 
 4️⃣ Conectar seu Whatsapp no WAHA:
