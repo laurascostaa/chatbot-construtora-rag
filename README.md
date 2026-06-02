@@ -81,3 +81,7 @@ Host: host.docker.internal
 Depois adicione um Node do WAHA para visualizar a mensagem, passando as configurações de Sessão, Chat ID e Payload ID.
 
 E por fim, adicione um Node do WAHA para responder a mensagem, passando as configurações de Sessão, Chat ID e TEXT, onde TEXT é o Output gerado pelo node do Agente de IA.
+
+
+BIBLIOTECA N8N: https://n8n.io/workflows/?q=rag 
+
