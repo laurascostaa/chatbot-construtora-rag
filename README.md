@@ -24,9 +24,11 @@ ou para macbook: docker compose up -d
 
 Aguarde o docker baixar e subir os containers dos aplicativos.
 
+
 4️⃣ Conectar seu Whatsapp no WAHA:
 
 Após baixar tudo, abra o aplicativo Docker Desktop e você verá uma nova stack de containers com os aplicativos N8N e WAHA, e os bancos de dados Redis e Postgres. Para acessá-los basta clicar na porta do container através da tabela de exibição (formato xxxx:xxxx).
+P.S: Caso de erro e pedir senha ao abrir xxxx:xxxx, para descobrir a senha rodar "docker logs waha 2>&1 | grep -i "password\|username\|auth\|key" | head -20" no terminal, e ver a senha no resultado. (Caso nao consiga reconhecer a senha, mandar pra IA reconhecer) 
 Acesse o WAHA através do navegador clicando na porta 3000:3000 pelo aplicativo Docker Desktop, depois clique em "Dashboard" logo em cima.
 No dashboard, inicie a sessão default já existente e leia o QR Code que aparece clicando em "Login".
 
