@@ -28,9 +28,28 @@ Aguarde o docker baixar e subir os containers dos aplicativos.
 4️⃣ Conectar seu Whatsapp no WAHA:
 
 Após baixar tudo, abra o aplicativo Docker Desktop e você verá uma nova stack de containers com os aplicativos N8N e WAHA, e os bancos de dados Redis e Postgres. Para acessá-los basta clicar na porta do container através da tabela de exibição (formato xxxx:xxxx).
+
 P.S: Caso de erro e pedir senha ao abrir xxxx:xxxx, para descobrir a senha rodar "docker logs waha 2>&1 | grep -i "password\|username\|auth\|key" | head -20" no terminal, e ver a senha no resultado. (Caso nao consiga reconhecer a senha, mandar pra IA reconhecer) 
 Acesse o WAHA através do navegador clicando na porta 3000:3000 pelo aplicativo Docker Desktop, depois clique em "Dashboard" logo em cima.
 No dashboard, inicie a sessão default já existente e leia o QR Code que aparece clicando em "Login".
+
+Se mesmo assim não funcionar, criar o script no terminal: cat > ~/Pet/longview\ -\ pessoal/N8N\ WAHA\ Local/abrir-waha.sh << 'EOF'
+#!/bin/bash
+cd ~/Pet/longview\ -\ pessoal/N8N\ WAHA\ Local/
+docker compose up -d
+sleep 5
+SENHA=$(docker logs waha 2>&1 | grep "WAHA_DASHBOARD_PASSWORD" | tail -1 | cut -d'=' -f2)
+echo "=========================="
+echo "Senha do WAHA: $SENHA"
+echo "Usuário: admin"
+echo "Link: http://localhost:3000/dashboard"
+echo "=========================="
+open "http://localhost:3000/dashboard"
+EOF
+chmod +x ~/Pet/longview\ -\ pessoal/N8N\ WAHA\ Local/abrir-waha.sh
+*note que você terá que editar para o seu caminho pessoal de onde está a pasta no seu computador.
+
+E rodar "~/Pet/longview\ -\ pessoal/N8N\ WAHA\ Local/abrir-waha.sh" que ele vai te fornecer a senha do dia.
 
 5️⃣ Configurar o N8N:
 
