@@ -1,453 +1,621 @@
 {
-  "name": "WhatsApp RAG Chatbot with Supabase, Gemini 2.5 Flash, and OpenAI Embeddings",
+  "name": "LongView - Chatbot (RAG Avançado + Transbordo)",
   "nodes": [
     {
       "parameters": {
-        "mode": "retrieve-as-tool",
-        "toolDescription": "call this tool to reach the goal",
-        "tableName": {
-          "__rl": true,
-          "mode": "list",
-          "value": "documents",
-          "cachedResultName": "documents"
-        },
+        "httpMethod": "POST",
+        "path": "waha-webhook",
+        "responseMode": "responseNode",
         "options": {}
       },
-      "id": "423eef62-4a36-46b3-a67f-e5e9e0b1d7aa",
-      "name": "Retrieve Context from Supabase",
-      "type": "@n8n/n8n-nodes-langchain.vectorStoreSupabase",
-      "position": [
-        -800,
-        592
-      ],
-      "typeVersion": 1.3
+      "id": "waha-webhook",
+      "name": "WAHA - Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [100, 400],
+      "webhookId": "waha-longview-chatbot",
+      "notes": "Configure no WAHA: POST para http://n8n:5678/webhook/waha-webhook"
     },
     {
       "parameters": {
-        "updates": [
-          "messages"
-        ],
-        "options": {}
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst payload = body.payload || body;\nconst from = payload.from || payload.chatId || body.from || '';\nconst messageText = (payload.body || payload.text || '').trim();\nconst messageType = payload.type || body.type || 'chat';\nconst sessionName = body.session || 'default';\nconst isFromMe = payload.fromMe || false;\nconst isGroup = from.includes('@g.us');\n\nif (isFromMe || isGroup) {\n  return [{ json: { skip: true, reason: isFromMe ? 'própria mensagem' : 'grupo' } }];\n}\n\nconst cleanPhone = from.replace('@c.us', '').replace('@s.whatsapp.net', '');\n\n// Detecta comando de reativação do bot pelo ATENDENTE\nconst reactivationCommands = ['#bot', '/bot', '#ativar', '/ativar'];\nconst isReactivation = reactivationCommands.includes(messageText.toLowerCase());\n\n// Detecta pedido de humano pelo CLIENTE\nconst humanKeywords = ['atendente', 'humano', 'corretor', 'pessoa', 'falar com alguem', 'falar com alguém', 'quero falar', 'me ligue', 'ligação', 'ligar'];\nconst clientWantsHuman = humanKeywords.some(kw => messageText.toLowerCase().includes(kw));\n\nreturn [{\n  json: {\n    skip: false,\n    from: from,\n    phone: cleanPhone,\n    message: messageText,\n    messageType: messageType,\n    session: sessionName,\n    isReactivation: isReactivation,\n    clientWantsHuman: clientWantsHuman,\n    timestamp: new Date().toISOString()\n  }\n}];"
       },
-      "id": "49f9248f-4f03-4d6c-8537-616fe378dd22",
-      "name": "New WhatsApp Message",
-      "type": "n8n-nodes-base.whatsAppTrigger",
-      "position": [
-        -1584,
-        656
-      ],
-      "webhookId": "ec046705-b8f2-4b88-9b98-4fd99975f432",
-      "typeVersion": 1
+      "id": "parse-waha",
+      "name": "Parsear Mensagem WAHA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [300, 400]
     },
     {
       "parameters": {
-        "rules": {
-          "values": [
+        "conditions": {
+          "options": { "caseSensitive": false, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
             {
-              "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "strict",
-                  "version": 2
-                },
-                "combinator": "and",
-                "conditions": [
-                  {
-                    "id": "dcd448ce-72f0-4c83-b721-3417a746473e",
-                    "operator": {
-                      "type": "object",
-                      "operation": "exists",
-                      "singleValue": true
-                    },
-                    "leftValue": "={{ $json.messages[0].text }}",
-                    "rightValue": ""
-                  }
-                ]
-              },
-              "renameOutput": true,
-              "outputKey": "query"
-            },
-            {
-              "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "strict",
-                  "version": 2
-                },
-                "combinator": "and",
-                "conditions": [
-                  {
-                    "id": "8b2b9810-08c7-452f-a2e0-ba1453586919",
-                    "operator": {
-                      "type": "object",
-                      "operation": "exists",
-                      "singleValue": true
-                    },
-                    "leftValue": "={{ $json.messages[0].document }}",
-                    "rightValue": ""
-                  }
-                ]
-              },
-              "renameOutput": true,
-              "outputKey": "document"
+              "id": "skip-check",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": false,
+              "operator": { "type": "boolean", "operation": "equals" }
             }
-          ]
+          ],
+          "combinator": "and"
         },
         "options": {}
       },
-      "id": "daf638f4-77c3-461d-8036-bcf8d96960a8",
-      "name": "Check if Query or Document",
-      "type": "n8n-nodes-base.switch",
-      "position": [
-        -1328,
-        656
-      ],
-      "typeVersion": 3.2
+      "id": "check-skip",
+      "name": "Mensagem válida?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [500, 400]
     },
     {
       "parameters": {
-        "dataType": "binary",
+        "respondWith": "text",
+        "responseBody": "ok",
         "options": {}
       },
-      "id": "c40eb344-6f66-40df-84d6-f7385c81448b",
-      "name": "Convert File to Text",
-      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
-      "position": [
-        -272,
-        1312
-      ],
-      "typeVersion": 1.1
+      "id": "skip-response",
+      "name": "Ignorar (skip)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [700, 650]
     },
     {
       "parameters": {
-        "options": {}
-      },
-      "id": "c77850c3-7be8-4799-b633-559212e1d821",
-      "name": "Generate OpenAI Embeddings",
-      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
-      "position": [
-        -464,
-        1312
-      ],
-      "typeVersion": 1.2
-    },
-    {
-      "parameters": {
-        "mode": "insert",
-        "tableName": {
-          "__rl": true,
-          "mode": "list",
-          "value": "documents",
-          "cachedResultName": "documents"
+        "conditions": {
+          "options": { "caseSensitive": false, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "reactivation-check",
+              "leftValue": "={{ $json.isReactivation }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
         },
         "options": {}
       },
-      "id": "ef1b923d-3b17-4831-a7d6-e1912dc5cdb5",
-      "name": "Store Embeddings in Supabase",
-      "type": "@n8n/n8n-nodes-langchain.vectorStoreSupabase",
-      "position": [
-        -384,
-        1024
-      ],
-      "typeVersion": 1.3
+      "id": "check-reactivation",
+      "name": "É reativação do bot?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [700, 400]
     },
     {
       "parameters": {
+        "jsCode": "const from = $input.first().json.from;\nconst session = $input.first().json.session;\n\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.humanHandoff) staticData.humanHandoff = {};\n\nif (staticData.humanHandoff[from]) {\n  delete staticData.humanHandoff[from];\n}\n\nreturn [{\n  json: {\n    to: from,\n    session: session,\n    responseText: '✅ Atendimento virtual reativado para este contato.'\n  }\n}];"
+      },
+      "id": "reactivate-bot",
+      "name": "Reativar Bot",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const from = $input.first().json.from;\nconst clientWantsHuman = $input.first().json.clientWantsHuman;\n\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.humanHandoff) staticData.humanHandoff = {};\nif (!staticData.messageCount) staticData.messageCount = {};\n\nif (!staticData.messageCount[from]) staticData.messageCount[from] = 0;\nstaticData.messageCount[from]++;\n\nconst isInHumanMode = !!staticData.humanHandoff[from];\n\nreturn [{\n  json: {\n    ...$input.first().json,\n    isInHumanMode: isInHumanMode,\n    messageCount: staticData.messageCount[from]\n  }\n}];"
+      },
+      "id": "check-human-mode",
+      "name": "Verificar Modo Atendimento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "human-mode-check",
+              "leftValue": "={{ $json.isInHumanMode }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
         "options": {}
       },
-      "id": "f51026be-7878-472e-85c3-87eea11b3c7b",
-      "name": "Google Gemini LLM",
-      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
-      "position": [
-        -928,
-        592
-      ],
-      "typeVersion": 1
+      "id": "is-human-mode",
+      "name": "Bot pausado para este número?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1100, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "ok",
+        "options": {}
+      },
+      "id": "human-mode-passthrough",
+      "name": "Silêncio (atendente responde)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1300, 250]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "wants-human-check",
+              "leftValue": "={{ $json.clientWantsHuman }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-wants-human",
+      "name": "Cliente quer atendente?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1300, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const from = $input.first().json.from;\nconst session = $input.first().json.session;\nconst question = $input.first().json.message;\n\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.humanHandoff) staticData.humanHandoff = {};\nstaticData.humanHandoff[from] = {\n  since: new Date().toISOString(),\n  reason: 'pedido_cliente',\n  lastMessage: question\n};\nif (staticData.messageCount) staticData.messageCount[from] = 0;\n\nreturn [{\n  json: {\n    from: from,\n    session: session,\n    question: question,\n    clientMessage: '🙋 Claro! Entendi que você precisa de um atendimento mais específico. Estou transferindo você para um de nossos especialistas agora mesmo.',\n    attendantMessage: `🔔 *Transbordo LongView*\\n\\n*Cliente:* ${from.replace('@c.us','')}\\n*Motivo:* Solicitou atendente humano\\n*Última mensagem:* \"${question}\"\\n\\nResponda neste número. Para reativar a IA, envie *#bot*.`,\n    attendantPhone: 'SEU_NUMERO_AQUI@c.us'\n  }\n}];"
+      },
+      "id": "prepare-handoff-explicit",
+      "name": "Preparar Transbordo (pedido cliente)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1600, 200]
+    },
+    {
+      "parameters": {
+        "url": "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-pdf",
+      "name": "Baixar PDF da LongView",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1600, 480],
+      "notes": "Coloque aqui a URL pública onde está o PDF dos padrões da construtora"
     },
     {
       "parameters": {
         "promptType": "define",
-        "text": "={{ $json.messages[0].text }}",
-        "options": {}
+        "text": "={{ $('Parsear Mensagem WAHA').item.json.message }}",
+        "options": {
+          "systemMessage": "Você é a assistente virtual de luxo da construtora LongView Empreendimentos. Seu tom é impecável, polido, empático e extremamente formal.\n\nREGRA 1: Baseie suas respostas EXCLUSIVAMENTE nos manuais e PDFs fornecidos através da sua ferramenta de busca.\nREGRA 2: NUNCA invente informações, metragens, prazos ou regras contratuais que não estejam no documento.\nREGRA 3: Se o cliente perguntar algo que NÃO ESTÁ no PDF, responda EXATAMENTE com a palavra: TRANSBORDO_NECESSARIO (não escreva mais nada além dessa palavra)."
+        }
       },
-      "id": "ee00cf80-048a-4d0d-8b18-14c3c0bb95ed",
-      "name": "RAG Query Agent",
+      "id": "ai-agent",
+      "name": "Assistente LongView (IA)",
       "type": "@n8n/n8n-nodes-langchain.agent",
-      "position": [
-        -912,
-        368
-      ],
-      "typeVersion": 2.1
+      "typeVersion": 1.6,
+      "position": [1820, 480]
     },
     {
       "parameters": {
-        "operation": "send",
-        "phoneNumberId": "768049963047541",
-        "recipientPhoneNumber": "={{ $('New WhatsApp Message').item.json.contacts[0].wa_id }}",
-        "textBody": "={{ $json.output }}",
-        "additionalFields": {}
+        "modelName": "models/gemini-1.5-flash",
+        "options": {
+          "temperature": 0
+        }
       },
-      "id": "04a68fdf-f620-4421-8c89-9850f8d6ec39",
-      "name": "Send WhatsApp Reply",
-      "type": "n8n-nodes-base.whatsApp",
-      "position": [
-        -368,
-        368
-      ],
-      "webhookId": "e5e2f982-af07-4274-8937-88ef5109e71b",
-      "typeVersion": 1
+      "id": "gemini-chat",
+      "name": "Google Gemini",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [1780, 700]
     },
     {
       "parameters": {
-        "content": "## Document Flow:\n\n* Fetch file URL from WhatsApp message\n* Download and convert file to readable text\n* Generate embeddings with OpenAI\n* Store embeddings in Supabase for future queries",
-        "height": 384,
-        "width": 960,
-        "color": 7
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Parsear Mensagem WAHA').item.json.phone }}"
       },
-      "id": "2b047e53-e465-44c9-89d0-016f72741a9a",
-      "name": "Sticky Note",
-      "type": "n8n-nodes-base.stickyNote",
-      "position": [
-        -1040,
-        832
-      ],
-      "typeVersion": 1
+      "id": "memory",
+      "name": "Memória da Conversa",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.2,
+      "position": [1900, 700]
     },
     {
       "parameters": {
-        "content": "## Query Flow:\n\n- Convert user query into embeddings (OpenAI)\n- Match embeddings with Supabase vectors to find context\n- Send retrieved context to Gemini 2.5 Flash for answer\n- Return concise response to WhatsApp user",
-        "height": 544,
-        "width": 560,
-        "color": 7
+        "name": "pesquisar_manuais_longview",
+        "description": "Ferramenta OBRIGATÓRIA. Use sempre para ler os manuais, plantas e PDFs da construtora LongView antes de responder a qualquer pergunta do cliente."
       },
-      "id": "578c4775-35c7-48b7-8631-b134f5a720bd",
-      "name": "Sticky Note1",
-      "type": "n8n-nodes-base.stickyNote",
-      "position": [
-        -1040,
-        176
-      ],
-      "typeVersion": 1
+      "id": "vector-tool",
+      "name": "Ler PDFs LongView",
+      "type": "@n8n/n8n-nodes-langchain.toolVectorStore",
+      "typeVersion": 1,
+      "position": [2040, 700]
+    },
+    {
+      "parameters": {},
+      "id": "vector-store",
+      "name": "Simple Vector Store",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreInMemory",
+      "typeVersion": 1,
+      "position": [2040, 900]
     },
     {
       "parameters": {
-        "content": "## Message Check: \n- Determines if the message is a query(text) or a document upload. ",
-        "height": 304,
-        "color": 7
+        "modelName": "models/embedding-001"
       },
-      "id": "032b76d7-01c5-4550-8c3a-d84bc5b95397",
-      "name": "Sticky Note2",
-      "type": "n8n-nodes-base.stickyNote",
-      "position": [
-        -1392,
-        528
-      ],
-      "typeVersion": 1
+      "id": "gemini-embed",
+      "name": "Gemini Embeddings",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [1940, 1100]
     },
     {
       "parameters": {
-        "content": "## Try It Out!\n### This n8n template demonstrates how to build a WhatsApp-based AI chatbot using **document retrieval (RAG)**.It stores documents in **Supabase** with **OpenAI embeddings** and generates user-friendly answers using **Gemini 2.5 Flash LLM**.\n\nUse cases: Turn your WhatsApp into a **knowledge assistant** for FAQs, customer support, or internal team knowledge.\n\n### How it works\n\n* **Trigger:** A WhatsApp webhook activates on every new message.\n* **Message Check:** Detects if the message is a document upload or a query.\n* **Document Handling:** File URL → text conversion → embeddings with OpenAI → stored in Supabase.\n* **Query Handling:** Query embeddings → retrieve context → Gemini 2.5 Flash generates response.\n* **Reply:** Sends the answer back to the user via WhatsApp.\n\n### How to use\n\n* Configure **WhatsApp Business API**, **Supabase**, and **OpenAI credentials** in n8n’s credential manager.\n* Upload documents via WhatsApp to populate the vector database.\n* Ask questions directly on WhatsApp — the bot retrieves context and replies instantly.\n\n### Requirements\n\n* WhatsApp Business API (or Twilio sandbox)\n* Supabase account (vector storage)\n* OpenAI API key (embeddings)\n* Gemini API access (LLM responses)\n\n### Need Help?\n\nDM me on [X (formerly Twitter)](https://x.com/manav170303) or email [titanfactz@gmail.com](mailto:titanfactz@gmail.com).\n\nAlways open to feedback and improvements!",
-        "height": 832,
-        "width": 800
-      },
-      "id": "f04afbef-d7e9-4840-87d4-751e40b3643a",
-      "name": "Sticky Note3",
-      "type": "n8n-nodes-base.stickyNote",
-      "position": [
-        -2448,
-        304
-      ],
-      "typeVersion": 1
-    },
-    {
-      "parameters": {
-        "resource": "media",
-        "operation": "mediaUrlGet",
-        "mediaGetId": "={{ $json.messages[0].document.id }}"
-      },
-      "id": "d0380d43-f42b-4abf-92b8-db24d2a797e5",
-      "name": "Get Document URL",
-      "type": "n8n-nodes-base.whatsApp",
-      "position": [
-        -992,
-        1024
-      ],
-      "webhookId": "39934341-fa40-46c5-8c26-9aa2f2b3ffcf",
-      "typeVersion": 1
-    },
-    {
-      "parameters": {
-        "url": "={{ $json.url }}",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "options": {}
       },
-      "id": "af50156e-43e5-4c59-9c01-04821a92e3a8",
-      "name": "Download WhatsApp Document",
+      "id": "pdf-loader",
+      "name": "Default Data Loader",
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1,
+      "position": [2160, 1100]
+    },
+    {
+      "parameters": {
+        "chunkSize": 1000,
+        "chunkOverlap": 200
+      },
+      "id": "text-splitter",
+      "name": "Text Splitter",
+      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+      "typeVersion": 1,
+      "position": [2160, 1260]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "e2e92c2d-9477-4df8-b57f-d309062dfc96",
+              "leftValue": "={{ $json.output }}",
+              "rightValue": "TRANSBORDO_NECESSARIO",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            },
+            {
+              "id": "b3e92c2d-9477-4df8-b57f-d309062dfc97",
+              "leftValue": "={{ $('Verificar Modo Atendimento').item.json.messageCount }}",
+              "rightValue": 5,
+              "operator": {
+                "type": "number",
+                "operation": "largerEqual"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "filtro-resposta",
+      "name": "IA Pediu Transbordo / Limite Excedido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2260, 480],
+      "notes": "Verifica se a IA devolveu a palavra-chave OU se passou de 5 mensagens."
+    },
+    {
+      "parameters": {
+        "jsCode": "const from = $('Parsear Mensagem WAHA').item.json.from;\nconst session = $('Parsear Mensagem WAHA').item.json.session;\nconst question = $('Parsear Mensagem WAHA').item.json.message;\nconst iaOutput = $input.first().json.output;\n\nlet reason = 'limite_mensagens';\nif (iaOutput && iaOutput.includes('TRANSBORDO_NECESSARIO')) {\n  reason = 'sem_contexto_no_pdf';\n}\n\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.humanHandoff) staticData.humanHandoff = {};\nstaticData.humanHandoff[from] = {\n  since: new Date().toISOString(),\n  reason: reason,\n  lastMessage: question\n};\nif (staticData.messageCount) staticData.messageCount[from] = 0;\n\nconst reasonText = reason === 'sem_contexto_no_pdf' \n  ? 'Dúvida não encontrada nos PDFs da construtora'\n  : 'Cliente enviou mais de 5 mensagens sem resolução';\n\nreturn [{\n  json: {\n    from: from,\n    session: session,\n    clientMessage: 'Compreendo perfeitamente. Como se trata de uma solicitação mais específica que exige atenção redobrada, estou a transferir o seu contacto agora mesmo para um dos nossos especialistas LongView.',\n    attendantMessage: `🔔 *Transbordo Automático LongView*\\n\\n*Cliente:* ${from.replace('@c.us','')}\\n*Motivo:* ${reasonText}\\n*Última mensagem:* \"${question}\"\\n\\nResponda neste número. Para reativar a IA, envie *#bot*.`,\n    attendantPhone: 'SEU_NUMERO_AQUI@c.us'\n  }\n}];"
+      },
+      "id": "prepare-handoff-auto",
+      "name": "Preparar Transbordo (IA)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2520, 280]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3000/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chatId\": \"{{ $json.from }}\",\n  \"text\": \"{{ $json.clientMessage }}\",\n  \"session\": \"{{ $json.session }}\"\n}",
+        "options": {}
+      },
+      "id": "notify-client-handoff",
+      "name": "WAHA - Avisar Cliente (transbordo)",
       "type": "n8n-nodes-base.httpRequest",
-      "position": [
-        -720,
-        1024
-      ],
-      "typeVersion": 4.2
+      "typeVersion": 4.2,
+      "position": [2780, 200]
     },
     {
       "parameters": {
-        "content": "## Document Upload Flow\n\nExample: Shows how a document is uploaded and detected in the workflow.  \n\n![Document Upload Example](https://github.com/Manav54321/WhatsApp-RAG-Chatbot-with-Supabase-Gemini-2.5-Flash-OpenAI-Embeddings/raw/main/screenshots/4956396C-F927-4308-9B7C-7F1CDEFE88F4_1_101_o.jpeg)\n",
-        "height": 832,
-        "width": 336
+        "method": "POST",
+        "url": "http://host.docker.internal:3000/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chatId\": \"{{ $json.attendantPhone }}\",\n  \"text\": \"{{ $json.attendantMessage }}\",\n  \"session\": \"{{ $json.session }}\"\n}",
+        "options": {}
       },
-      "id": "7fc81204-d0d0-474b-9538-90e4160ecaa2",
-      "name": "Sticky Note4",
-      "type": "n8n-nodes-base.stickyNote",
-      "position": [
-        16,
-        832
-      ],
-      "typeVersion": 1
+      "id": "notify-attendant",
+      "name": "WAHA - Notificar Atendente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2960, 200]
     },
     {
       "parameters": {
-        "content": "## Contextual Answer Flow\n\nExample: Demonstrates how the bot retrieves context from Supabase and responds with Gemini 2.5 Flash.  \n\n![Contextual Answer Example](https://github.com/Manav54321/WhatsApp-RAG-Chatbot-with-Supabase-Gemini-2.5-Flash-OpenAI-Embeddings/raw/main/screenshots/5FB5C957-2435-4FA1-93BA-9C9E0A749BF2_1_101_o.jpeg)\n",
-        "height": 848,
-        "width": 336
+        "method": "POST",
+        "url": "http://host.docker.internal:3000/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chatId\": \"{{ $('Parsear Mensagem WAHA').item.json.from }}\",\n  \"text\": \"{{ $json.output }}\",\n  \"session\": \"{{ $('Parsear Mensagem WAHA').item.json.session }}\"\n}",
+        "options": {}
       },
-      "id": "e49f4860-4a0d-4884-ba89-b6eadfe913cb",
-      "name": "Sticky Note5",
-      "type": "n8n-nodes-base.stickyNote",
-      "position": [
-        -176,
-        -96
-      ],
-      "typeVersion": 1
+      "id": "waha-send",
+      "name": "WAHA - Enviar Resposta Bot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2780, 600]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3000/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chatId\": \"{{ $json.to }}\",\n  \"text\": \"{{ $json.responseText }}\",\n  \"session\": \"{{ $json.session }}\"\n}",
+        "options": {}
+      },
+      "id": "waha-send-reactivation",
+      "name": "WAHA - Confirmar Reativação",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "ok",
+        "options": {}
+      },
+      "id": "webhook-response",
+      "name": "Responder Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [3160, 480]
     }
   ],
-  "pinData": {},
   "connections": {
-    "RAG Query Agent": {
+    "WAHA - Webhook": {
       "main": [
         [
-          {
-            "node": "Send WhatsApp Reply",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "Parsear Mensagem WAHA", "type": "main", "index": 0 }
         ]
       ]
     },
-    "Get Document URL": {
+    "Parsear Mensagem WAHA": {
       "main": [
         [
-          {
-            "node": "Download WhatsApp Document",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "Mensagem válida?", "type": "main", "index": 0 }
         ]
       ]
     },
-    "Google Gemini LLM": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "RAG Query Agent",
-            "type": "ai_languageModel",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Convert File to Text": {
-      "ai_document": [
-        [
-          {
-            "node": "Store Embeddings in Supabase",
-            "type": "ai_document",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "New WhatsApp Message": {
+    "Mensagem válida?": {
       "main": [
         [
-          {
-            "node": "Check if Query or Document",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Check if Query or Document": {
-      "main": [
-        [
-          {
-            "node": "RAG Query Agent",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "É reativação do bot?", "type": "main", "index": 0 }
         ],
         [
-          {
-            "node": "Get Document URL",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "Ignorar (skip)", "type": "main", "index": 0 }
         ]
       ]
     },
-    "Download WhatsApp Document": {
+    "É reativação do bot?": {
       "main": [
         [
-          {
-            "node": "Store Embeddings in Supabase",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Generate OpenAI Embeddings": {
-      "ai_embedding": [
+          { "node": "Reativar Bot", "type": "main", "index": 0 }
+        ],
         [
-          {
-            "node": "Store Embeddings in Supabase",
-            "type": "ai_embedding",
-            "index": 0
-          },
-          {
-            "node": "Retrieve Context from Supabase",
-            "type": "ai_embedding",
-            "index": 0
-          }
+          { "node": "Verificar Modo Atendimento", "type": "main", "index": 0 }
         ]
       ]
     },
-    "Retrieve Context from Supabase": {
+    "Reativar Bot": {
+      "main": [
+        [
+          { "node": "WAHA - Confirmar Reativação", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "WAHA - Confirmar Reativação": {
+      "main": [
+        [
+          { "node": "Responder Webhook", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Verificar Modo Atendimento": {
+      "main": [
+        [
+          { "node": "Bot pausado para este número?", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Bot pausado para este número?": {
+      "main": [
+        [
+          { "node": "Silêncio (atendente responde)", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Cliente quer atendente?", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Cliente quer atendente?": {
+      "main": [
+        [
+          { "node": "Preparar Transbordo (pedido cliente)", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Baixar PDF da LongView", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Preparar Transbordo (pedido cliente)": {
+      "main": [
+        [
+          { "node": "WAHA - Avisar Cliente (transbordo)", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Baixar PDF da LongView": {
+      "main": [
+        [
+          { "node": "Assistente LongView (IA)", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Assistente LongView (IA)": {
+      "main": [
+        [
+          { "node": "IA Pediu Transbordo / Limite Excedido?", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "IA Pediu Transbordo / Limite Excedido?": {
+      "main": [
+        [
+          { "node": "Preparar Transbordo (IA)", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "WAHA - Enviar Resposta Bot", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Preparar Transbordo (IA)": {
+      "main": [
+        [
+          { "node": "WAHA - Avisar Cliente (transbordo)", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "WAHA - Avisar Cliente (transbordo)": {
+      "main": [
+        [
+          { "node": "WAHA - Notificar Atendente", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "WAHA - Notificar Atendente": {
+      "main": [
+        [
+          { "node": "Responder Webhook", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "WAHA - Enviar Resposta Bot": {
+      "main": [
+        [
+          { "node": "Responder Webhook", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Google Gemini": {
+      "ai_languageModel": [
+        [
+          { "node": "Assistente LongView (IA)", "type": "ai_languageModel", "index": 0 }
+        ]
+      ]
+    },
+    "Memória da Conversa": {
+      "ai_memory": [
+        [
+          { "node": "Assistente LongView (IA)", "type": "ai_memory", "index": 0 }
+        ]
+      ]
+    },
+    "Ler PDFs LongView": {
       "ai_tool": [
         [
-          {
-            "node": "RAG Query Agent",
-            "type": "ai_tool",
-            "index": 0
-          }
+          { "node": "Assistente LongView (IA)", "type": "ai_tool", "index": 0 }
+        ]
+      ]
+    },
+    "Simple Vector Store": {
+      "ai_vectorStore": [
+        [
+          { "node": "Ler PDFs LongView", "type": "ai_vectorStore", "index": 0 }
+        ]
+      ]
+    },
+    "Gemini Embeddings": {
+      "ai_embedding": [
+        [
+          { "node": "Simple Vector Store", "type": "ai_embedding", "index": 0 }
+        ]
+      ]
+    },
+    "Default Data Loader": {
+      "ai_document": [
+        [
+          { "node": "Simple Vector Store", "type": "ai_document", "index": 0 }
+        ]
+      ]
+    },
+    "Text Splitter": {
+      "ai_textSplitter": [
+        [
+          { "node": "Default Data Loader", "type": "ai_textSplitter", "index": 0 }
         ]
       ]
     }
   },
-  "active": false,
   "settings": {
     "executionOrder": "v1",
-    "binaryMode": "separate"
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
   },
-  "versionId": "e055802e-6b85-41ca-b45e-1ebb1674e10d",
+  "staticData": null,
   "meta": {
-    "templateCredsSetupCompleted": true,
-    "instanceId": "ea7602dc96def0e7bcddca90afc48dd27fc1e0f91d35f80032cdda4b45abb6c9"
+    "templateCredsSetupCompleted": false
   },
-  "id": "7ot9pZD593PSf9Yb",
-  "tags": []
+  "pinData": {},
+  "versionId": "longview-merged-v3",
+  "triggerCount": 1,
+  "tags": ["longview", "rag", "ia-avançada", "transbordo"]
 }
