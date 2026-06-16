@@ -1,5 +1,5 @@
 {
-  "name": "LongView - Chatbot RAG v3",
+  "name": "LongView - Chatbot RAG v4",
   "nodes": [
     {
       "parameters": {
@@ -684,8 +684,8 @@
     },
     {
       "parameters": {
-        "chunkSize": 500,
-        "chunkOverlap": 100,
+        "chunkSize": 1800,
+        "chunkOverlap": 250,
         "options": {}
       },
       "id": "11c6f604-fcf6-4c2a-87b1-8c70e9f13eac",
@@ -696,7 +696,7 @@
         -448,
         -96
       ],
-      "notes": "CORRIGIDO: chunkSize 500 (era padrão 1000). chunkOverlap 100 (era 200). Trechos menores = buscas mais precisas."
+      "notes": "v4: chunkSize 1800 / overlap 250. Evita cortar descrições longas de áreas de lazer e memoriais."
     },
     {
       "parameters": {
@@ -786,6 +786,240 @@
         640
       ],
       "notes": "v3: Envia saudação fixa ao cliente."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://qdrant:6333/collections/longview_historico/points/scroll",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"filter\": {\n    \"must\": [{\n      \"key\": \"telefone\",\n      \"match\": { \"value\": \"{{ $json.phone }}\" }\n    }]\n  },\n  \"limit\": 4,\n  \"order_by\": { \"key\": \"timestamp\", \"direction\": \"desc\" },\n  \"with_payload\": true,\n  \"with_vector\": false\n}",
+        "options": {}
+      },
+      "id": "h1s2t3o4-r5i6-c789-0abc-def123456701",
+      "name": "Buscar Histórico Recente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        544,
+        448
+      ],
+      "notes": "v4: Busca as últimas 4 interações do cliente no Qdrant para montar contexto de conversa."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Recupera histórico do Qdrant e monta contexto para reformular a pergunta\nconst qdrantResp = $input.first().json;\nconst points = qdrantResp.result?.points || [];\nconst parsedData = $('Verificar Estado').first().json;\nconst currentMessage = parsedData.message;\n\n// Ordena do mais antigo para o mais recente\nconst sorted = [...points].sort((a, b) =>\n  new Date(a.payload.timestamp) - new Date(b.payload.timestamp)\n);\n\n// Monta histórico resumido (pergunta + resposta)\nconst historyLines = sorted.map(p => {\n  const q = p.payload.pergunta_cliente || '';\n  const r = p.payload.resposta_ia || '';\n  return `Cliente: ${q}\\nAssistente: ${r.slice(0, 200)}${r.length > 200 ? '...' : ''}`;\n}).join('\\n\\n');\n\nconst hasHistory = historyLines.trim().length > 0;\n\nreturn [{\n  json: {\n    ...parsedData,\n    hasHistory,\n    historyLines,\n    originalMessage: currentMessage\n  }\n}];"
+      },
+      "id": "h2s3t4o5-r6i7-c890-1abc-def123456702",
+      "name": "Preparar Contexto Histórico",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        752,
+        448
+      ],
+      "notes": "v4: Organiza histórico recente do cliente para enviar ao Gemini na etapa de reformulação."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "={{ $credentials.googleGeminiApi }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"system_instruction\": {\n    \"parts\": [{\n      \"text\": \"Você é um reformulador de perguntas. Sua única tarefa é: dado um HISTÓRICO de conversa e uma NOVA PERGUNTA, reescrever a nova pergunta de forma completa e autocontida, incorporando o contexto necessário do histórico.\\n\\nREGRAS:\\n- Se a pergunta já for completa e clara, retorne-a sem alterações.\\n- Se a pergunta for uma continuação (ex: 'e a metragem?', 'qual o preço?', 'e ele tem piscina?'), incorpore o contexto do histórico para torná-la completa.\\n- Retorne APENAS a pergunta reformulada, sem explicações, sem prefixos, sem aspas.\\n- Máximo 2 frases.\"\n    }]\n  },\n  \"contents\": [{\n    \"role\": \"user\",\n    \"parts\": [{\n      \"text\": \"HISTÓRICO RECENTE:\\n{{ $json.hasHistory ? $json.historyLines : 'Sem histórico anterior.' }}\\n\\nNOVA PERGUNTA DO CLIENTE:\\n{{ $json.originalMessage }}\\n\\nPERGUNTA REFORMULADA:\"\n    }]\n  }],\n  \"generationConfig\": { \"temperature\": 0, \"maxOutputTokens\": 128 }\n}",
+        "options": {}
+      },
+      "id": "h3s4t5o6-r7i8-c901-2abc-def123456703",
+      "name": "Gemini - Reformular Pergunta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        976,
+        448
+      ],
+      "notes": "v4: Chamada leve ao Gemini para tornar perguntas de continuação autocontidas antes do embedding."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extrai pergunta reformulada e mantém todos os dados do fluxo\nconst geminiResp = $input.first().json;\nconst contextData = $('Preparar Contexto Histórico').first().json;\n\nconst reformulada = geminiResp.candidates?.[0]?.content?.parts?.[0]?.text?.trim()\n  || contextData.originalMessage;\n\nreturn [{\n  json: {\n    ...contextData,\n    message: reformulada,           // sobrescreve message com versão enriquecida\n    messageOriginal: contextData.originalMessage  // preserva original para o log\n  }\n}];"
+      },
+      "id": "h4s5t6o7-r8i9-c012-3abc-def123456704",
+      "name": "Montar Query Enriquecida",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        448
+      ],
+      "notes": "v4: Substitui $json.message pela versão reformulada com contexto. O embedding usa essa versão."
+    },
+    {
+      "parameters": {
+        "path": "upload-tabela-longview",
+        "formTitle": "Alimentar Base — Tabelas e Planilhas LongView",
+        "formDescription": "Use este formulário para enviar planilhas de preços, quadros de áreas e tabelas. O sistema fará uma higienização especial antes de vetorizar.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Documento (PDF com tabelas ou CSV)",
+              "fieldType": "file",
+              "acceptFileTypes": ".pdf,.csv,.txt",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Tipo de documento",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Tabela de Preços"
+                  },
+                  {
+                    "option": "Quadro de Áreas"
+                  },
+                  {
+                    "option": "Memorial Descritivo"
+                  },
+                  {
+                    "option": "Outro"
+                  }
+                ]
+              },
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f0rm1str2-u3t4-5678-abcd-tabela0000001",
+      "name": "Formulário Upload Estruturado",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2,
+      "position": [
+        -928,
+        -800
+      ],
+      "webhookId": "tabela-form-longview-001",
+      "notes": "v4: Formulário separado para tabelas e planilhas. Processa diferente do PDF narrativo."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Higienizador de tabelas extraídas de PDF\n// PDFs de tabelas costumam gerar texto com espaços extras, colunas embaralhadas\n// e números sem contexto. Este nó limpa e reestrutura antes de vetorizar.\n\nconst binaryData = $input.first().binary;\nconst binaryKey = Object.keys(binaryData || {})[0] || 'file';\nconst fileName = binaryData?.[binaryKey]?.fileName || 'tabela-longview';\nconst fileNameClean = fileName.replace(/\\.(pdf|csv|txt)$/i, '');\nconst tipoDoc = $input.first().json['Tipo de documento'] || 'Documento';\n\n// O texto será extraído pelo nó Ler PDF — aqui só preparamos os metadados\nreturn [{\n  json: {\n    source: fileNameClean,\n    fileName: fileName,\n    tipoDoc: tipoDoc,\n    isStructured: true,\n    uploadedAt: new Date().toISOString()\n  },\n  binary: binaryData\n}];"
+      },
+      "id": "f1rm2str3-u4t5-6789-abcd-tabela0000002",
+      "name": "Preparar Metadados Tabela",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -672,
+        -800
+      ],
+      "notes": "v4: Extrai metadados e tipo do documento estruturado."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Recebe o texto extraído do PDF e higieniza para tabelas\n// Aplicado DEPOIS do Ler PDF via nó sub-workflow ou code\nconst items = $input.all();\nreturn items.map(item => {\n  let text = item.json.text || item.json.pageContent || '';\n  const source = $('Preparar Metadados Tabela').first().json.source;\n  const tipoDoc = $('Preparar Metadados Tabela').first().json.tipoDoc;\n\n  // 1. Remove espaços múltiplos deixados por colunas de PDF\n  text = text.replace(/[ \\t]{2,}/g, ' | ');\n\n  // 2. Remove linhas em branco consecutivas\n  text = text.replace(/\\n{3,}/g, '\\n\\n');\n\n  // 3. Remove caracteres de lixo comuns em PDFs de tabela\n  text = text.replace(/[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]/g, '');\n\n  // 4. Adiciona prefixo de contexto em cada chunk (ajuda a IA a saber o que é)\n  text = `[${tipoDoc} — ${source}]\\n${text}`;\n\n  return {\n    json: {\n      ...item.json,\n      text: text.trim(),\n      pageContent: text.trim(),\n      source: source,\n      tipoDoc: tipoDoc\n    }\n  };\n});"
+      },
+      "id": "f2rm3str4-u5t6-7890-abcd-tabela0000003",
+      "name": "Higienizar Texto Tabela",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -416,
+        -800
+      ],
+      "notes": "v4: Limpa espaços de colunas PDF, remove lixo, adiciona prefixo de contexto. Evita dados embaralhados no Qdrant."
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "f3rm4str5-u6t7-8901-abcd-tabela0000004",
+      "name": "Ler PDF Estruturado",
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1,
+      "position": [
+        -448,
+        -560
+      ],
+      "notes": "v4: Extrator de texto para documentos estruturados. Conectado ao higienizador."
+    },
+    {
+      "parameters": {
+        "chunkSize": 800,
+        "chunkOverlap": 150,
+        "options": {}
+      },
+      "id": "f4rm5str6-u7t8-9012-abcd-tabela0000005",
+      "name": "Fatiar Texto Estruturado",
+      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+      "typeVersion": 1,
+      "position": [
+        -448,
+        -432
+      ],
+      "notes": "v4: Chunks menores (800) para tabelas — cada linha/item da tabela fica num chunk separado."
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "qdrantCollection": "longview_docs",
+        "options": {
+          "metadata": "={{ { source: $('Preparar Metadados Tabela').first().json.source, fileName: $('Preparar Metadados Tabela').first().json.fileName, tipoDoc: $('Preparar Metadados Tabela').first().json.tipoDoc, isStructured: true, uploadedAt: $('Preparar Metadados Tabela').first().json.uploadedAt } }}"
+        }
+      },
+      "id": "f5rm6str7-u8t9-0123-abcd-tabela0000006",
+      "name": "Salvar Tabela no Qdrant",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        -800
+      ],
+      "notes": "v4: Salva chunks higienizados na mesma collection longview_docs com metadado tipoDoc."
+    },
+    {
+      "parameters": {
+        "modelName": "models/text-embedding-004"
+      },
+      "id": "f6rm7str8-u9t0-1234-abcd-tabela0000007",
+      "name": "Gemini Embeddings Estruturado",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        -960
+      ],
+      "notes": "v4: Mesmo modelo de embedding, aplicado aos chunks higienizados."
     }
   ],
   "pinData": {},
@@ -1144,7 +1378,7 @@
         ],
         [
           {
-            "node": "Gemini - Embedding",
+            "node": "Buscar Histórico Recente",
             "type": "main",
             "index": 0
           }
@@ -1172,6 +1406,116 @@
           }
         ]
       ]
+    },
+    "Buscar Histórico Recente": {
+      "main": [
+        [
+          {
+            "node": "Preparar Contexto Histórico",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Contexto Histórico": {
+      "main": [
+        [
+          {
+            "node": "Gemini - Reformular Pergunta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini - Reformular Pergunta": {
+      "main": [
+        [
+          {
+            "node": "Montar Query Enriquecida",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar Query Enriquecida": {
+      "main": [
+        [
+          {
+            "node": "Gemini - Embedding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formulário Upload Estruturado": {
+      "main": [
+        [
+          {
+            "node": "Preparar Metadados Tabela",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Metadados Tabela": {
+      "main": [
+        [
+          {
+            "node": "Salvar Tabela no Qdrant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ler PDF Estruturado": {
+      "ai_document": [
+        [
+          {
+            "node": "Salvar Tabela no Qdrant",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fatiar Texto Estruturado": {
+      "ai_textSplitter": [
+        [
+          {
+            "node": "Ler PDF Estruturado",
+            "type": "ai_textSplitter",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Embeddings Estruturado": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Salvar Tabela no Qdrant",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Higienizar Texto Tabela": {
+      "main": [
+        [
+          {
+            "node": "Salvar Tabela no Qdrant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
@@ -1179,7 +1523,7 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "longview-v3-final",
+  "versionId": "longview-v4-final",
   "meta": {
     "instanceId": "ea7602dc96def0e7bcddca90afc48dd27fc1e0f91d35f80032cdda4b45abb6c9"
   },
