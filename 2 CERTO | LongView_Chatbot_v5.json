@@ -1,5 +1,5 @@
 {
-  "name": "LongView - Chatbot RAG v5 (Corrigido)",
+  "name": "LongView - Chatbot RAG v5 (Corrigido Definitivo)",
   "nodes": [
     {
       "parameters": {
@@ -135,8 +135,7 @@
       "name": "É mídia?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [336, 544],
-      "notes": "v5: Filtra áudios/imagens"
+      "position": [336, 544]
     },
     {
       "parameters": {
@@ -240,8 +239,7 @@
       "name": "Pausa Anti-Rate Limit 1",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
-      "position": [944, 448],
-      "notes": "v5: Atrasa 2s para poupar limites da API Gratuita"
+      "position": [944, 448]
     },
     {
       "parameters": {
@@ -527,7 +525,7 @@
       "name": "Formulário de Upload",
       "type": "n8n-nodes-base.formTrigger",
       "typeVersion": 2,
-      "position": [-928, -640]
+      "position": [-928, -400]
     },
     {
       "parameters": {
@@ -537,7 +535,7 @@
       "name": "Preparar Metadados PDF",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-672, -640]
+      "position": [-672, -400]
     },
     {
       "parameters": {
@@ -549,7 +547,7 @@
       "name": "Salvar no Qdrant",
       "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
       "typeVersion": 1,
-      "position": [-416, -640]
+      "position": [-416, -400]
     },
     {
       "parameters": { "options": {} },
@@ -557,7 +555,7 @@
       "name": "Ler PDF (Extrair Texto)",
       "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
       "typeVersion": 1,
-      "position": [-448, -240]
+      "position": [-256, -200]
     },
     {
       "parameters": { "chunkSize": 1800, "chunkOverlap": 250, "options": {} },
@@ -565,7 +563,7 @@
       "name": "Fatiar Texto",
       "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
       "typeVersion": 1,
-      "position": [-448, -96]
+      "position": [-256, -48]
     },
     {
       "parameters": { "modelName": "models/text-embedding-004" },
@@ -573,7 +571,7 @@
       "name": "Gemini Embeddings",
       "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
       "typeVersion": 1,
-      "position": [-416, -448]
+      "position": [-416, -200]
     },
     {
       "parameters": {
@@ -599,22 +597,6 @@
       "position": [-672, -864]
     },
     {
-      "parameters": { "options": {} },
-      "id": "f3rm4str5-u6t7-8901-abcd-tabela0000004",
-      "name": "Ler PDF Estruturado",
-      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
-      "typeVersion": 1,
-      "position": [-448, -496]
-    },
-    {
-      "parameters": { "chunkSize": 800, "chunkOverlap": 150, "options": {} },
-      "id": "f4rm5str6-u7t8-9012-abcd-tabela0000005",
-      "name": "Fatiar Texto Estruturado",
-      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
-      "typeVersion": 1,
-      "position": [-448, -352]
-    },
-    {
       "parameters": {
         "mode": "insert",
         "qdrantCollection": "longview_docs",
@@ -624,7 +606,7 @@
       "name": "Salvar Tabela no Qdrant",
       "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
       "typeVersion": 1,
-      "position": [-208, -864]
+      "position": [-416, -864]
     },
     {
       "parameters": { "modelName": "models/text-embedding-004" },
@@ -632,7 +614,23 @@
       "name": "Gemini Embeddings Estruturado",
       "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
       "typeVersion": 1,
-      "position": [-208, -720]
+      "position": [-416, -688]
+    },
+    {
+      "parameters": { "options": {} },
+      "id": "f3rm4str5-u6t7-8901-abcd-tabela0000004",
+      "name": "Ler PDF Estruturado",
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1,
+      "position": [-256, -688]
+    },
+    {
+      "parameters": { "chunkSize": 800, "chunkOverlap": 150, "options": {} },
+      "id": "f4rm5str6-u7t8-9012-abcd-tabela0000005",
+      "name": "Fatiar Texto Estruturado",
+      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+      "typeVersion": 1,
+      "position": [-256, -528]
     }
   ],
   "pinData": {},
