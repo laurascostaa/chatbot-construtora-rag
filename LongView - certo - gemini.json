@@ -1,0 +1,1381 @@
+{
+  "name": "LongView - certo - gemini",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst payload = body.payload || body;\nconst from = payload.from || payload.chatId || body.from || '';\nconst messageText = (payload.body || payload.text || '').trim();\nconst sessionName = body.session || 'default';\nconst isFromMe = payload.fromMe || false;\nconst isGroup = from.includes('@g.us');\nif (isFromMe || isGroup) return [{ json: { skip: true } }];\nconst cleanPhone = from.replace('@c.us', '').replace('@s.whatsapp.net', '');\nconst msgLower = messageText.toLowerCase().trim();\n\n// DETECÇÃO DE MÍDIA\nconst type = payload.type || body.type || '';\nconst hasMedia = payload.hasMedia || ['audio', 'ptt', 'image', 'video', 'sticker', 'document'].includes(type) || (!messageText && type);\nconst isMedia = !!hasMedia;\n\nconst isReactivation = ['#bot', '/bot', '#ativar', '/ativar'].includes(msgLower);\n// EXPRESSÃO ATUALIZADA AQUI: Adicionado os sinais de + para aceitar letras repetidas\nconst greetingRegex = /^(o+i+|ol[aá]+|boa tarde|bom dia|boa noite|hey+|hello+|tudo bem|tudo bom|e a[ií]+|o+i+e+|o+i+i+)+[\\s!?.]*$/i;\nconst isGreeting = greetingRegex.test(messageText.trim()) && !isMedia;\nconst criticalRegex = /(atendente|humano|pessoa|rescis[aã]o|procon|jur[ií]dico|advogado|processo|justi[çc]a|reclama[çc][aã]o|cancelar|distrato|falar com algu[eé]m|quero falar)/i;\nconst isCritical = criticalRegex.test(messageText) && !isMedia;\nreturn [{ json: { skip: false, from, phone: cleanPhone, message: messageText, session: sessionName, isReactivation, isGreeting, isCritical, isMedia, timestamp: new Date().toISOString() } }];"
+      },
+      "id": "e0c37bc5-6bc6-45dd-8296-83d34af899c8",
+      "name": "Parsear & Classificador Inicial",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        1056
+      ],
+      "notes": "v5: Detecta áudios e imagens para evitar quebra no RAG."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0b9c8871-bc78-4405-a762-81e297daf3e4",
+      "name": "Mensagem válida?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        688,
+        1040
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.isReactivation }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5a6c28ca-376c-4f1e-8f95-f0cc08f1d9d0",
+      "name": "É reativação?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        960,
+        992
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const from = $input.first().json.from;\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.humanHandoff) staticData.humanHandoff = {};\nif (staticData.humanHandoff[from]) delete staticData.humanHandoff[from];\nreturn [{ json: { to: from, session: $input.first().json.session, responseText: '✅ Olá! Estou de volta para te ajudar com informações sobre os empreendimentos LongView. Como posso te auxiliar?' } }];"
+      },
+      "id": "89629635-d3e3-4480-8ae5-83850924c0db",
+      "name": "Reativar IA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1168,
+        864
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const from = $input.first().json.from;\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.humanHandoff) staticData.humanHandoff = {};\nconst handoffEntry = staticData.humanHandoff[from];\nlet isInHumanMode = false;\nif (handoffEntry) {\n  const elapsed = Date.now() - new Date(handoffEntry.since).getTime();\n  if (elapsed < 8 * 60 * 60 * 1000) {\n    isInHumanMode = true;\n  } else {\n    delete staticData.humanHandoff[from];\n  }\n}\nreturn [{ json: { ...$input.first().json, isInHumanMode } }];"
+      },
+      "id": "f83ec89d-0ef6-4907-bd4d-55bdccff14b6",
+      "name": "Verificar Estado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1168,
+        1088
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.isInHumanMode }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7feeff7c-990d-4b89-a8b9-2f6474c70de0",
+      "name": "Em Atendimento Humano?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        1088
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.isCritical }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "aa097922-4684-4ec3-ba29-46a86b026264",
+      "name": "Classificador: É Crítico?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        1168
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.isMedia }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6445a9c2-cf1b-4008-838c-5deed2e9e35c",
+      "name": "É mídia?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1696,
+        1488
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const from = $input.first().json.from;\nconst session = $input.first().json.session;\nreturn [{ json: { to: from, session, responseText: 'Desculpe, ainda não consigo ouvir áudios ou visualizar imagens. 😅\\n\\nPor favor, digite sua dúvida em texto para que eu possa te ajudar!' } }];"
+      },
+      "id": "e7b10d6f-2359-4e4c-befa-8629c34af80c",
+      "name": "Resposta de Mídia",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1856,
+        1312
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://waha:3000/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chatId\": \"{{ $json.to }}\",\n  \"text\": \"{{ $json.responseText }}\",\n  \"session\": \"{{ $json.session }}\"\n}",
+        "options": {}
+      },
+      "id": "8c821171-5af0-43b4-b6ec-50f2db9b5705",
+      "name": "WAHA - Enviar Alerta Mídia",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2016,
+        1312
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.isGreeting }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c64e49a3-09c7-4e69-94b0-6dad22b42cf5",
+      "name": "É saudação?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1872,
+        1696
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const from = $input.first().json.from;\nconst session = $input.first().json.session;\nconst hour = new Date().getHours();\nconst greetings = [\n  'Bom dia! Bem-vindo à LongView 🏢\\n\\nSou o assistente virtual e estou aqui para te ajudar com informações sobre nossos empreendimentos de alto padrão.\\n\\nComo posso te auxiliar?',\n  'Boa tarde! Bem-vindo à LongView 🏢\\n\\nSou o assistente virtual e estou aqui para te ajudar com informações sobre nossos empreendimentos de alto padrão.\\n\\nComo posso te auxiliar?',\n  'Boa noite! Bem-vindo à LongView 🏢\\n\\nSou o assistente virtual e estou aqui para te ajudar com informações sobre nossos empreendimentos de alto padrão.\\n\\nComo posso te auxiliar?'\n];\nconst idx = hour < 12 ? 0 : hour < 18 ? 1 : 2;\n// Ajustado para 'chatId' para alimentar direto o WAHA sem erros\nreturn [{ json: { chatId: from, session, text: greetings[idx] } }];"
+      },
+      "id": "d1ff9bf6-b559-48f1-9478-4f95fa796b6a",
+      "name": "Resposta de Saudação",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2112,
+        1616
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://waha:3000/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "f49f0c59-1668-4657-b65f-2163f010a57a",
+      "name": "WAHA - Enviar Saudação",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2352,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://qdrant:6333/collections/longview_historico/points/scroll",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"filter\": {\n    \"must\": [{\n      \"key\": \"telefone\",\n      \"match\": { \"value\": \"{{ $json.phone }}\" }\n    }]\n  },\n  \"limit\": 4,\n  \"with_payload\": true,\n  \"with_vector\": false\n}\n",
+        "options": {}
+      },
+      "id": "b2987dc2-6eaf-4b2f-914b-737c29bef4bb",
+      "name": "Buscar Histórico Recente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2032,
+        1920
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const qdrantResp = $input.first().json;\nconst points = qdrantResp.result?.points || [];\nconst parsedData = $('Verificar Estado').first().json;\nconst currentMessage = parsedData.message;\nconst sorted = [...points].sort((a, b) => new Date(a.payload.timestamp) - new Date(b.payload.timestamp));\nconst historyLines = sorted.map(p => `Cliente: ${p.payload.pergunta_cliente || ''}\\nAssistente: ${(p.payload.resposta_ia || '').slice(0, 200)}`).join('\\n\\n');\nconst hasHistory = historyLines.trim().length > 0;\nreturn [{ json: { ...parsedData, hasHistory, historyLines, originalMessage: currentMessage } }];"
+      },
+      "id": "7e154008-e345-4eef-b4e3-42e2545c79de",
+      "name": "Preparar Contexto Histórico",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        1920
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "id": "6911afca-9c0b-4893-b159-5f60b29c1c9b",
+      "name": "Pausa Anti-Rate Limit 1",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2416,
+        1920
+      ],
+      "webhookId": "3a9134d5-10e9-4f12-b96a-f49de6ae1fad"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "(https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent)",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"system_instruction\": {\n    \"parts\": [{\n      \"text\": \"Você é um reformulador de perguntas. Sua única tarefa é: dado um HISTÓRICO de conversa e uma NOVA PERGUNTA, reescrever a nova pergunta de forma completa e autocontida.\\n\\nREGRAS:\\n- Se a pergunta já for completa, retorne-a sem alterações.\\n- Retorne APENAS a pergunta reformulada.\"\n    }]\n  },\n  \"contents\": [{ \"role\": \"user\", \"parts\": [{ \"text\": \"HISTÓRICO:\\n{{ $json.hasHistory ? $json.historyLines : 'Sem histórico.' }}\\n\\nNOVA PERGUNTA:\\n{{ $json.originalMessage }}\\n\\nPERGUNTA REFORMULADA:\" }] }],\n  \"generationConfig\": { \"temperature\": 0, \"maxOutputTokens\": 128 }\n}",
+        "options": {}
+      },
+      "id": "2e5f222f-7a3c-464f-8ad1-7aa618b2f1dc",
+      "name": "Gemini - Reformular Pergunta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2592,
+        1920
+      ],
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "sf5PL7rMieCq32Bx",
+          "name": "Query Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const geminiResp = $input.first().json;\nconst contextData = $('Preparar Contexto Histórico').first().json;\nconst reformulada = geminiResp.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || contextData.originalMessage;\nreturn [{ json: { ...contextData, message: reformulada, messageOriginal: contextData.originalMessage } }];"
+      },
+      "id": "da26b171-196d-4315-8479-72a053f3b63e",
+      "name": "Montar Query Enriquecida",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2784,
+        1920
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"models/text-embedding-004\",\n  \"content\": { \"parts\": [{ \"text\": \"{{ $json.message }}\" }] },\n  \"taskType\": \"RETRIEVAL_QUERY\"\n}",
+        "options": {}
+      },
+      "id": "a061f7d5-76cd-434c-821f-0e6865e7eedd",
+      "name": "Gemini - Embedding",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2976,
+        1920
+      ],
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "sf5PL7rMieCq32Bx",
+          "name": "Query Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://qdrant:6333/collections/longview_docs/points/search",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"vector\": {{ JSON.stringify($json.embedding.values) }},\n  \"limit\": 3,\n  \"with_payload\": true,\n  \"score_threshold\": 0.65\n}",
+        "options": {}
+      },
+      "id": "8eb86c31-c763-464a-990d-259a8eccbc38",
+      "name": "Busca nos PDFs (RAG)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3184,
+        1920
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const qdrantResult = $input.first().json;\nconst results = qdrantResult.result || [];\nconst prevNode = $('Montar Query Enriquecida').first().json;\nconst MIN_SCORE = 0.72;\nconst validResults = results.filter(r => r.score >= MIN_SCORE);\nconst hasContext = validResults.length > 0;\nconst topScore = results.length > 0 ? results[0].score : 0;\nconst contextText = validResults.map(r => `Documento: ${r.payload?.source || 'Material LongView'}\\nTrecho: ${r.payload?.text || r.payload?.pageContent || ''}\\n(Relevância: ${(r.score * 100).toFixed(0)}%)`).join('\\n\\n---\\n\\n');\nreturn [{ json: { ...prevNode, hasContext, contextText, shouldHandoff: !hasContext, topScore, handoffReason: !hasContext ? 'sem_contexto_suficiente' : null } }];"
+      },
+      "id": "859cb7d5-6eda-44fe-a98f-986a33731bcd",
+      "name": "Validação de Confiança",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3376,
+        1920
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.shouldHandoff }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "12eeea87-82e2-4985-8d39-66ce0f468e12",
+      "name": "Passou na Validação?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3568,
+        1920
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "id": "416810f4-cd33-49a6-a0dc-06612f2ab5f7",
+      "name": "Pausa Anti-Rate Limit 2",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3824,
+        1936
+      ],
+      "webhookId": "0f5b7974-2737-4667-9f45-3ffc05025467"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "(https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent)",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"system_instruction\": {\n    \"parts\": [{\n      \"text\": \"Você é o assistente virtual da LongView, construtora de empreendimentos de alto padrão.\\n\\nSUA ÚNICA FUNÇÃO: reformular o TRECHO abaixo com linguagem acolhedora, elegante e gramaticalmente perfeita para responder à PERGUNTA DO CLIENTE.\\n\\nREGRAS ABSOLUTAS:\\n1. Use SOMENTE as informações presentes no TRECHO fornecido.\\n2. Se o TRECHO não contiver a resposta, responda: 'Não tenho essa informação nos nossos materiais. Vou acionar um especialista LongView para te atender com mais detalhes.'\\n3. NUNCA invente valores, datas ou dados ausentes.\\n4. NUNCA use conhecimento geral.\\n5. Seja cordial e breve. Máximo 4 frases.\\n6. Não mencione que é IA.\"\n    }]\n  },\n  \"contents\": [{ \"role\": \"user\", \"parts\": [{ \"text\": \"TRECHO EXTRAÍDO:\\n{{ $json.contextText }}\\n\\n---\\n\\nPERGUNTA DO CLIENTE:\\n{{ $json.messageOriginal }}\" }] }],\n  \"generationConfig\": { \"temperature\": 0, \"maxOutputTokens\": 512, \"topP\": 1, \"topK\": 1 }\n}",
+        "options": {}
+      },
+      "id": "1b28f111-b63d-4215-bb0b-6bf17f1c4bfc",
+      "name": "IA Reescreve (SEM criar)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4016,
+        1936
+      ],
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "sf5PL7rMieCq32Bx",
+          "name": "Query Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const ATTENDANT_PHONE = 'SEU_NUMERO_AQUI@c.us';\nconst from = $('Verificar Estado').first().json.from;\nconst session = $('Verificar Estado').first().json.session;\nconst question = $('Verificar Estado').first().json.message;\nconst isCritical = $('Verificar Estado').first().json.isCritical || false;\nconst topScore = $input.first().json.topScore || 0;\nconst handoffReason = isCritical ? 'assunto_critico' : ($input.first().json.handoffReason || 'sem_contexto');\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.humanHandoff) staticData.humanHandoff = {};\nconst alreadyInHandoff = !!staticData.humanHandoff[from];\nstaticData.humanHandoff[from] = { since: new Date().toISOString(), reason: handoffReason };\nconst reasonLabel = {\n  assunto_critico: '🔴 Assunto crítico (jurídico/rescisão/procon)',\n  sem_contexto_suficiente: '🟡 Fora da base de conhecimento',\n  sem_contexto: '🟡 Fora da base de conhecimento'\n}[handoffReason] || '🟡 Motivo não identificado';\nconst attendantMsg = alreadyInHandoff ? `📩 *Nova mensagem — cliente em atendimento*\\n\\n*Cliente:* ${from.replace('@c.us','')}\\n*Mensagem:* \"${question}\"` : `🔔 *Novo Transbordo — LongView*\\n\\n*Cliente:* ${from.replace('@c.us','')}\\n*Última mensagem:* \"${question}\"\\n*Motivo:* ${reasonLabel}\\n*Score RAG:* ${(topScore*100).toFixed(0)}%\\n*Horário:* ${new Date().toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'})}\\n\\nPara reativar a IA após atender, envie *#bot*.`;\nreturn [{ json: { from, session, clientMessage: alreadyInHandoff ? null : 'Compreendo perfeitamente. Estou transferindo você agora para um dos nossos especialistas LongView para garantir o melhor atendimento. Em breve entraremos em contato! 🏢', attendantMessage: attendantMsg, attendantPhone: ATTENDANT_PHONE, handoffReason, topScore, alreadyInHandoff } }];"
+      },
+      "id": "979a31b4-f13f-4ee1-aee2-048b877f79bf",
+      "name": "Preparar Transbordo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3808,
+        1488
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://waha:3000/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chatId\": \"{{ $json.to }}\",\n  \"text\": \"{{ $json.responseText }}\",\n  \"session\": \"{{ $json.session }}\"\n}",
+        "options": {}
+      },
+      "id": "2e48bb00-870f-4a93-9331-36e1b81c497a",
+      "name": "WAHA - Avisar Cliente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4000,
+        1392
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://waha:3000/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chatId\": \"{{ $json.attendantPhone }}\",\n  \"text\": \"{{ $json.attendantMessage }}\",\n  \"session\": \"{{ $json.session }}\"\n}",
+        "options": {}
+      },
+      "id": "8de54563-0401-45fb-9fda-f0d57a79e4eb",
+      "name": "WAHA - Notificar Atendente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4192,
+        1392
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const geminiResponse = $input.first().json;\nconst stateNode = $('Verificar Estado').first().json;\nlet responseText = geminiResponse.candidates?.[0]?.content?.parts?.[0]?.text || 'Desculpe, ocorreu um erro ao processar sua mensagem. Um de nossos especialistas entrará em contato.';\n\nreturn [{ json: { \n  chatId: stateNode.from,  // Mudado de 'to' para 'chatId'\n  phone: stateNode.phone, \n  session: stateNode.session, \n  text: responseText.trim(), // Mudado de 'responseText' para 'text'\n  originalMessage: stateNode.message, \n  timestamp: stateNode.timestamp || new Date().toISOString(), \n  topScore: $('Validação de Confiança').first().json.topScore || 0, \n  contextText: $('Validação de Confiança').first().json.contextText || '' \n} }];"
+      },
+      "id": "94192d92-57c3-456e-820c-b2891864c36d",
+      "name": "Extrair Texto Formatado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4208,
+        1936
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://waha:3000/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "=={{ $json }}",
+        "options": {}
+      },
+      "id": "3b01158b-c240-436d-b6c0-fa38e1435c1b",
+      "name": "Responder (WAHA)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4400,
+        1936
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst phone = data.phone || data.to?.replace('@c.us','') || 'desconhecido';\nconst timestamp = data.timestamp || new Date().toISOString();\nconst payload = { points: [{ id: Date.now(), vector: [0], payload: { tipo: 'conversa_ia', telefone: phone, sessao: data.session || 'default', pergunta_cliente: data.originalMessage || '', resposta_ia: data.responseText || '', contexto_usado: data.contextText || '', score_relevancia: data.topScore || 0, timestamp: timestamp, data_hora_br: new Date(timestamp).toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo'}) } }] };\nreturn [{ json: { payload, phone, timestamp } }];"
+      },
+      "id": "03cfbfd3-dcb6-4827-a147-615db2f984dd",
+      "name": "Preparar Log Histórico",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4592,
+        1936
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "http://qdrant:6333/collections/longview_historico/points",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {}
+      },
+      "id": "c119db08-4729-40b2-bf45-5619375861b8",
+      "name": "Salvar Histórico (Qdrant)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4784,
+        1936
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const from = $('Preparar Transbordo').first().json.from;\nconst phone = from.replace('@c.us','');\nconst stateNode = $('Verificar Estado').first().json;\nconst transbordoData = $('Preparar Transbordo').first().json;\nconst timestamp = new Date().toISOString();\nconst payload = { points: [{ id: Date.now(), vector: [0], payload: { tipo: 'transbordo', telefone: phone, sessao: stateNode.session || 'default', pergunta_cliente: stateNode.message || '', resposta_ia: '[TRANSBORDO]', motivo_transbordo: transbordoData.handoffReason || 'desconhecido', score_relevancia: transbordoData.topScore || 0, timestamp: timestamp, data_hora_br: new Date(timestamp).toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo'}) } }] };\nreturn [{ json: { payload } }];"
+      },
+      "id": "22b34693-3e02-45ec-8822-767a349d669b",
+      "name": "Preparar Log Transbordo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4384,
+        1392
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "http://qdrant:6333/collections/longview_historico/points",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {}
+      },
+      "id": "aa02dde7-309d-4ec2-acc0-3254549d341b",
+      "name": "Salvar Log Transbordo (Qdrant)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4576,
+        1392
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://waha:3000/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chatId\": \"{{ $json.to }}\",\n  \"text\": \"{{ $json.responseText }}\",\n  \"session\": \"{{ $json.session }}\"\n}",
+        "options": {}
+      },
+      "id": "61536a1a-6c5e-4400-9c48-4bc0f3039501",
+      "name": "Confirmar Reativação",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1360,
+        736
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "waha-webhook",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        240,
+        1056
+      ],
+      "id": "d7b79808-7f73-495b-a3ed-1419560a197f",
+      "name": "Webhook",
+      "webhookId": "1976d8ec-65e1-467e-8205-e96b8e31025a"
+    },
+    {
+      "parameters": {
+        "path": "535a82ce-e712-43c9-9135-33d17de7fe31",
+        "formTitle": "Alimentar Base de Dados LongView",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Documento (PDF)",
+              "fieldType": "file",
+              "acceptFileTypes": ".pdf",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fbd38ec5-0964-43a2-b44e-0d5d2d71146c",
+      "name": "Formulário de Upload",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2,
+      "position": [
+        112,
+        -304
+      ],
+      "webhookId": "535a82ce-e712-43c9-9135-33d17de7fe31"
+    },
+    {
+      "parameters": {
+        "jsCode": "const binaryData = $input.first().binary;\nconst binaryKey = Object.keys(binaryData || {})[0] || 'file';\nconst fileName = binaryData?.[binaryKey]?.fileName || 'documento.pdf';\nconst fileNameClean = fileName.replace(/\\.pdf$/i, '');\nreturn [{ json: { source: fileNameClean, fileName, uploadedAt: new Date().toISOString() }, binary: binaryData }];"
+      },
+      "id": "8a509b00-b063-4e64-9c0b-370416e30805",
+      "name": "Preparar Metadados PDF",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        368,
+        -304
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "qdrantCollection": "longview_docs",
+        "options": {}
+      },
+      "id": "3268a688-9156-457b-9528-584efdc22522",
+      "name": "Salvar no Qdrant",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1,
+      "position": [
+        624,
+        -304
+      ],
+      "credentials": {
+        "qdrantApi": {
+          "id": "WtGZjSmri9DhT5J2",
+          "name": "Qdrant account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "adc49cc7-e58d-47bf-8e3f-ed392acac54a",
+      "name": "Ler PDF (Extrair Texto)",
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1,
+      "position": [
+        592,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "chunkSize": 1800,
+        "chunkOverlap": 250,
+        "options": {}
+      },
+      "id": "b74377ec-744c-4fd0-84e1-43fb0aef3f1a",
+      "name": "Fatiar Texto",
+      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+      "typeVersion": 1,
+      "position": [
+        592,
+        320
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "d90fdba2-cd47-4f75-9b70-c25d8f211e3a",
+      "name": "Gemini Embeddings",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        624,
+        -96
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "Y6SPvmrAb7s1rNOn",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Parsear & Classificador Inicial": {
+      "main": [
+        [
+          {
+            "node": "Mensagem válida?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mensagem válida?": {
+      "main": [
+        [
+          {
+            "node": "É reativação?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "É reativação?": {
+      "main": [
+        [
+          {
+            "node": "Reativar IA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verificar Estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reativar IA": {
+      "main": [
+        [
+          {
+            "node": "Confirmar Reativação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirmar Reativação": {
+      "main": [
+        []
+      ]
+    },
+    "Verificar Estado": {
+      "main": [
+        [
+          {
+            "node": "Em Atendimento Humano?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Em Atendimento Humano?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Classificador: É Crítico?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classificador: É Crítico?": {
+      "main": [
+        [
+          {
+            "node": "Preparar Transbordo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "É mídia?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "É mídia?": {
+      "main": [
+        [
+          {
+            "node": "Resposta de Mídia",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "É saudação?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resposta de Mídia": {
+      "main": [
+        [
+          {
+            "node": "WAHA - Enviar Alerta Mídia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WAHA - Enviar Alerta Mídia": {
+      "main": [
+        []
+      ]
+    },
+    "É saudação?": {
+      "main": [
+        [
+          {
+            "node": "Resposta de Saudação",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Buscar Histórico Recente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resposta de Saudação": {
+      "main": [
+        [
+          {
+            "node": "WAHA - Enviar Saudação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WAHA - Enviar Saudação": {
+      "main": [
+        []
+      ]
+    },
+    "Buscar Histórico Recente": {
+      "main": [
+        [
+          {
+            "node": "Preparar Contexto Histórico",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Contexto Histórico": {
+      "main": [
+        [
+          {
+            "node": "Pausa Anti-Rate Limit 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pausa Anti-Rate Limit 1": {
+      "main": [
+        [
+          {
+            "node": "Gemini - Reformular Pergunta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini - Reformular Pergunta": {
+      "main": [
+        [
+          {
+            "node": "Montar Query Enriquecida",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar Query Enriquecida": {
+      "main": [
+        [
+          {
+            "node": "Gemini - Embedding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini - Embedding": {
+      "main": [
+        [
+          {
+            "node": "Busca nos PDFs (RAG)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Busca nos PDFs (RAG)": {
+      "main": [
+        [
+          {
+            "node": "Validação de Confiança",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validação de Confiança": {
+      "main": [
+        [
+          {
+            "node": "Passou na Validação?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Passou na Validação?": {
+      "main": [
+        [
+          {
+            "node": "Preparar Transbordo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Pausa Anti-Rate Limit 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pausa Anti-Rate Limit 2": {
+      "main": [
+        [
+          {
+            "node": "IA Reescreve (SEM criar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IA Reescreve (SEM criar)": {
+      "main": [
+        [
+          {
+            "node": "Extrair Texto Formatado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Transbordo": {
+      "main": [
+        [
+          {
+            "node": "WAHA - Avisar Cliente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WAHA - Avisar Cliente": {
+      "main": [
+        [
+          {
+            "node": "WAHA - Notificar Atendente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WAHA - Notificar Atendente": {
+      "main": [
+        [
+          {
+            "node": "Preparar Log Transbordo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Log Transbordo": {
+      "main": [
+        [
+          {
+            "node": "Salvar Log Transbordo (Qdrant)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Salvar Log Transbordo (Qdrant)": {
+      "main": [
+        []
+      ]
+    },
+    "Extrair Texto Formatado": {
+      "main": [
+        [
+          {
+            "node": "Responder (WAHA)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder (WAHA)": {
+      "main": [
+        [
+          {
+            "node": "Preparar Log Histórico",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Log Histórico": {
+      "main": [
+        [
+          {
+            "node": "Salvar Histórico (Qdrant)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Salvar Histórico (Qdrant)": {
+      "main": [
+        []
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Parsear & Classificador Inicial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formulário de Upload": {
+      "main": [
+        [
+          {
+            "node": "Preparar Metadados PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Metadados PDF": {
+      "main": [
+        [
+          {
+            "node": "Salvar no Qdrant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ler PDF (Extrair Texto)": {
+      "ai_document": [
+        [
+          {
+            "node": "Salvar no Qdrant",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fatiar Texto": {
+      "ai_textSplitter": [
+        [
+          {
+            "node": "Ler PDF (Extrair Texto)",
+            "type": "ai_textSplitter",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Embeddings": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Salvar no Qdrant",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "25d704e4-f652-4ac8-a073-4c617e038f66",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "ea7602dc96def0e7bcddca90afc48dd27fc1e0f91d35f80032cdda4b45abb6c9"
+  },
+  "id": "IeEJm5aQNKb3VBFh",
+  "tags": []
+}

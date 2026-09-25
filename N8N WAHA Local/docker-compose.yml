@@ -1,0 +1,92 @@
+version: "3.8"
+
+# =============================================
+# LongView Chatbot RAG - Stack completo
+# Serviços: n8n + WAHA + Qdrant
+# =============================================
+
+services:
+
+  # -------------------------------------------
+  # N8N - Orquestrador de workflows
+  # -------------------------------------------
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n_longview
+    restart: unless-stopped
+    ports:
+      - "5679:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=longview2024
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5679/
+      - GENERIC_TIMEZONE=America/Sao_Paulo
+      - TZ=America/Sao_Paulo
+      # --- AS DUAS VARIÁVEIS MÁGICAS ---
+      - N8N_SECURE_COOKIE=false
+      - N8N_PROXY_HOPS=1
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - longview_network
+    depends_on:
+      - qdrant
+
+# -------------------------------------------
+  # WAHA - WhatsApp HTTP API (Sem Senhas)
+  # -------------------------------------------
+  waha:
+    image: devlikeapro/waha:latest
+    container_name: waha_longview
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - WHATSAPP_DEFAULT_ENGINE=NOWEB
+      - WAHA_NO_API_KEY=true
+      - WAHA_DASHBOARD_NO_PASSWORD=true
+      - WHATSAPP_START_SESSION=default
+      - WHATSAPP_HOOK_URL=http://n8n:5678/webhook/waha-webhook
+      - WHATSAPP_HOOK_EVENTS=message
+    networks:
+      - longview_network
+  # -------------------------------------------
+  # Qdrant - Vector Database (Base da IA)
+  # -------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant_longview
+    restart: unless-stopped
+    ports:
+      - "6333:6333"     # REST API
+      - "6334:6334"     # gRPC (opcional)
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - longview_network
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+
+# -------------------------------------------
+# Volumes persistentes
+# -------------------------------------------
+# -------------------------------------------
+# Volumes persistentes
+# -------------------------------------------
+volumes:
+  n8n_data:
+  waha_data:
+  waha_data_v2:
+  waha_data_v3:
+  qdrant_data:
+
+# -------------------------------------------
+# Rede interna
+# -------------------------------------------
+networks:
+  longview_network:
+    driver: bridge
