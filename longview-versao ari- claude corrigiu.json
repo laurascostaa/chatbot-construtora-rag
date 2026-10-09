@@ -1,0 +1,147 @@
+{
+  "name": "longview chat sem pdf - protótipo (corrigido)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "webhook",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [0, 0],
+      "id": "938525d4-d1ec-49f3-8d20-12cb3f5e8a5a",
+      "name": "Webhook",
+      "webhookId": "85b5a9f3-afad-4e73-abff-bab313943b58"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "b39e7a98-2497-4349-826c-9be9420f6273", "name": "session", "value": "={{ $json.body.session }}", "type": "string" },
+            { "id": "350148e8-f7b8-4200-a751-61e684e9b29d", "name": "chatId", "value": "={{ $json.body.payload.from }}", "type": "string" },
+            { "id": "f3e5b947-f25f-4c15-939d-d3172d6c1c0f", "name": "pushName", "value": "={{ $json.body.payload._data?.Info?.PushName ?? $json.body.payload._data?.notifyName ?? '' }}", "type": "string" },
+            { "id": "434ae168-9c93-43eb-a85f-572fa0ec2a26", "name": "payload_id", "value": "={{ $json.body.payload.id }}", "type": "string" },
+            { "id": "62befe6c-17bb-43b3-8422-94467ec7e09d", "name": "event", "value": "={{ $json.body.event }}", "type": "string" },
+            { "id": "79ee15aa-fc05-46b0-8a6b-445ddbedff39", "name": "message", "value": "={{ $json.body.payload.body ?? '' }}", "type": "string" },
+            { "id": "046cbf40-779b-429f-993e-9f5360d72b13", "name": "fromMe", "value": "={{ $json.body.payload.fromMe === true }}", "type": "boolean" }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [208, 0],
+      "id": "3d1d2028-5d41-4653-a39f-f073ba9864ce",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 3 },
+                "conditions": [
+                  { "id": "dd0bc5be-073d-47aa-96a3-5060ee9eba39", "leftValue": "={{ $json.event }}", "rightValue": "message", "operator": { "type": "string", "operation": "equals" } },
+                  { "id": "a1f0c3b2-1111-4c2a-9b1e-0a0a0a0a0001", "leftValue": "={{ $json.fromMe }}", "rightValue": "", "operator": { "type": "boolean", "operation": "false", "singleValue": true } },
+                  { "id": "a1f0c3b2-1111-4c2a-9b1e-0a0a0a0a0002", "leftValue": "={{ $json.chatId }}", "rightValue": "@c.us", "operator": { "type": "string", "operation": "endsWith" } },
+                  { "id": "a1f0c3b2-1111-4c2a-9b1e-0a0a0a0a0003", "leftValue": "={{ $json.message }}", "rightValue": "", "operator": { "type": "string", "operation": "notEmpty", "singleValue": true } }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [416, 0],
+      "id": "2753ed71-8c95-4ba5-a3e4-e70afe43bf78",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "resource": "Chatting",
+        "operation": "Send Seen",
+        "session": "={{ $('Edit Fields').item.json.session }}",
+        "chatId": "={{ $('Edit Fields').item.json.chatId }}",
+        "messageId": "={{ $('Edit Fields').item.json.payload_id }}",
+        "requestOptions": {}
+      },
+      "type": "n8n-nodes-waha.WAHA",
+      "typeVersion": 202411,
+      "position": [624, 0],
+      "id": "7f9271b6-c1d1-4f3c-9869-ce9869c35644",
+      "name": "Send Seen"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Edit Fields').item.json.message }}",
+        "options": {
+          "systemMessage": "=Você é o assistente virtual da LongView Construtora no WhatsApp.\nO nome do cliente (se disponível) é: {{ $('Edit Fields').item.json.pushName }}\n\nREGRAS ABSOLUTAS:\n1. Responda APENAS com base nas INFORMAÇÕES DA LONGVIEW abaixo.\n2. Se a informação não estiver abaixo, responda exatamente:\n   \"Não tenho essa informação no momento. Entre em contato com nossa equipe.\"\n3. NUNCA invente valores, prazos, metragens ou condições.\n4. Use linguagem profissional, cordial e mensagens curtas (é WhatsApp).\n\nINFORMAÇÕES DA LONGVIEW:\n- [COLE AQUI as informações da construtora: empreendimentos, endereços, metragens, valores, condições de pagamento, horários, telefone da equipe etc.]"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [832, 0],
+      "id": "e4c7ca7f-2261-47f7-9760-4b294f722e9d",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.5-flash",
+        "options": { "temperature": 0.4 }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [784, 288],
+      "id": "42b16dc2-e362-4a4c-a2e0-25affdf5ca74",
+      "name": "Google Gemini Chat Model"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Edit Fields').item.json.chatId }}",
+        "sessionTTL": 3600,
+        "contextWindowLength": 10
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryRedisChat",
+      "typeVersion": 1.6,
+      "position": [944, 288],
+      "id": "765276cb-7535-4a75-a35b-87c319940dfd",
+      "name": "Redis Chat Memory"
+    },
+    {
+      "parameters": {
+        "resource": "Chatting",
+        "operation": "Send Text",
+        "session": "={{ $('Edit Fields').item.json.session }}",
+        "chatId": "={{ $('Edit Fields').item.json.chatId }}",
+        "reply_to": "=",
+        "text": "={{ $json.output }}",
+        "requestOptions": {}
+      },
+      "type": "n8n-nodes-waha.WAHA",
+      "typeVersion": 202411,
+      "position": [1184, 0],
+      "id": "22d45de4-0887-4b8f-a5e4-9ee5be8abf87",
+      "name": "Send a text message"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Edit Fields", "type": "main", "index": 0 }]] },
+    "Edit Fields": { "main": [[{ "node": "Switch", "type": "main", "index": 0 }]] },
+    "Switch": { "main": [[{ "node": "Send Seen", "type": "main", "index": 0 }]] },
+    "Send Seen": { "main": [[{ "node": "AI Agent", "type": "main", "index": 0 }]] },
+    "Google Gemini Chat Model": { "ai_languageModel": [[{ "node": "AI Agent", "type": "ai_languageModel", "index": 0 }]] },
+    "Redis Chat Memory": { "ai_memory": [[{ "node": "AI Agent", "type": "ai_memory", "index": 0 }]] },
+    "AI Agent": { "main": [[{ "node": "Send a text message", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": []
+}
