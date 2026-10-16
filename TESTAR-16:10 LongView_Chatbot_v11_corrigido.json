@@ -1,0 +1,1792 @@
+{
+  "name": "LongView - Chatbot RAG v11 (corrigido)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "waha-webhook",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "e2bfb732-e2e1-4a8c-be3b-8f271335091e",
+      "name": "WAHA - Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -928,
+        256
+      ],
+      "webhookId": "b8f16df4-8edd-43e1-9389-97808e345ab0"
+    },
+    {
+      "parameters": {
+        "jsCode": "// v11: mesmos filtros do workflow simples (só evento 'message', sem fromMe, sem grupo)\n// + comando '#bot <numero>' enviado pelo atendente para reativar a IA de um cliente.\nconst ATTENDANT_PHONE = '5548999999999'; // <<< TROQUE pelo número do atendente (só dígitos, com 55 + DDD)\n\nconst raw = $input.first().json;\nconst body = raw.body || raw;\nconst event = body.event || '';\nconst payload = body.payload || {};\nconst from = String(payload.from || '');\nconst messageText = String(payload.body || '').trim();\nconst session = body.session || 'default';\n\nconst isFromMe = payload.fromMe === true;\nconst isGroup = from.endsWith('@g.us');\nconst isBroadcast = from.includes('broadcast') || from.endsWith('@newsletter');\nconst isMedia = payload.hasMedia === true;\n\n// Ignora acks, status, mensagens do próprio número, grupos e mensagens vazias\nif (event !== 'message' || !from || isFromMe || isGroup || isBroadcast || (!messageText && !isMedia)) {\n  return [{ json: { skip: true } }];\n}\n\nconst cleanPhone = from.split('@')[0];\nconst isAttendant = cleanPhone === ATTENDANT_PHONE.replace(/\\D/g, '');\n\n// '#bot' (cliente reativa a própria conversa) ou '#bot 5548...' (atendente reativa um cliente)\nconst cmd = messageText.match(/^[#\\/](?:bot|ativar)(?:\\s+(\\S+))?$/i);\nlet isReactivation = false;\nlet reactivateTarget = null;\nif (cmd && !isMedia) {\n  if (cmd[1] && isAttendant) {\n    isReactivation = true;\n    reactivateTarget = cmd[1].split('@')[0].replace(/\\D/g, '');\n  } else if (!cmd[1]) {\n    isReactivation = true;\n    reactivateTarget = cleanPhone;\n  }\n}\n\nconst greetingRegex = /^(oi|ol[aá]|boa tarde|bom dia|boa noite|hey|hello|tudo bem|tudo bom|e a[ií]|oie|oii)[\\s!?.]*$/i;\nconst isGreeting = greetingRegex.test(messageText) && !isMedia;\nconst criticalRegex = /(atendente|humano|pessoa|rescis[aã]o|procon|jur[ií]dico|advogado|processo|justi[çc]a|reclama[çc][aã]o|cancel|distrato|falar com algu[eé]m|quero falar)/i;\nconst isCritical = criticalRegex.test(messageText) && !isMedia;\n\nreturn [{ json: { skip: false, from, phone: cleanPhone, message: messageText, session, isReactivation, reactivateTarget, isAttendant, isGreeting, isCritical, isMedia, timestamp: new Date().toISOString() } }];"
+      },
+      "id": "01b69b62-0626-4df9-a673-384f5555431f",
+      "name": "Parsear & Classificador Inicial",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -736,
+        256
+      ],
+      "notes": "v11: filtra evento 'message', fromMe, grupos; comando #bot do atendente. TROQUE o ATTENDANT_PHONE."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "dda1c262-71c6-42c2-b172-917065c1255f",
+      "name": "Mensagem válida?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -512,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.isReactivation }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "aeffc45e-52df-41a1-b3df-42fbd415ba96",
+      "name": "É reativação?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -304,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.humanHandoff) staticData.humanHandoff = {};\nconst target = data.reactivateTarget;\nconst session = data.session;\nconst welcome = '✅ Olá! Estou de volta para te ajudar com informações sobre os empreendimentos LongView. Como posso te auxiliar?';\n\n// Remove o modo humano de qualquer chatId desse número (@c.us ou @lid)\nlet clientChatId = null;\nfor (const key of Object.keys(staticData.humanHandoff)) {\n  if (key.split('@')[0] === target) {\n    clientChatId = key;\n    delete staticData.humanHandoff[key];\n  }\n}\n\n// O próprio cliente mandou #bot\nif (target === data.phone) {\n  return [{ json: { to: data.from, session, responseText: welcome } }];\n}\n\n// O atendente mandou '#bot <numero>'\nconst out = [];\nif (clientChatId) out.push({ json: { to: clientChatId, session, responseText: welcome } });\nout.push({ json: { to: data.from, session, responseText: clientChatId\n  ? `✅ IA reativada para o cliente ${target}.`\n  : `⚠️ Não encontrei o cliente ${target} em atendimento humano (talvez já tenha expirado).` } });\nreturn out;"
+      },
+      "id": "0a81aa8d-ea56-4774-91b1-912c726df542",
+      "name": "Reativar IA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -112,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "Chatting",
+        "operation": "Send Text",
+        "session": "={{ $json.session }}",
+        "chatId": "={{ $json.to }}",
+        "reply_to": "=",
+        "text": "={{ $json.responseText }}",
+        "requestOptions": {}
+      },
+      "id": "84ddb0f9-9ca7-464f-8181-b63a7971f061",
+      "name": "Confirmar Reativação",
+      "type": "n8n-nodes-waha.WAHA",
+      "typeVersion": 202411,
+      "position": [
+        112,
+        96
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "const from = $input.first().json.from;\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.humanHandoff) staticData.humanHandoff = {};\nconst handoffEntry = staticData.humanHandoff[from];\nlet isInHumanMode = false;\nif (handoffEntry) {\n  const elapsed = Date.now() - new Date(handoffEntry.since).getTime();\n  if (elapsed < 8 * 60 * 60 * 1000) {\n    isInHumanMode = true;\n  } else {\n    delete staticData.humanHandoff[from];\n  }\n}\nreturn [{ json: { ...$input.first().json, isInHumanMode } }];"
+      },
+      "id": "7faf1702-8037-42cc-8876-9edc176e5400",
+      "name": "Verificar Estado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -112,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.isInHumanMode }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "956f949d-3bed-44da-8407-baca3d5c9778",
+      "name": "Em Atendimento Humano?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        112,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.isCritical }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fdf2f0d1-8098-4d76-818c-108fcb0a9e83",
+      "name": "Classificador: É Crítico?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        336,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.isMedia }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "m1e2d3i4-a5s6-7890-abcd-media00000001",
+      "name": "É mídia?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        544,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const from = $input.first().json.from;\nconst session = $input.first().json.session;\nreturn [{ json: { to: from, session, responseText: 'Desculpe, ainda não consigo ouvir áudios ou visualizar imagens. 😅\\n\\nPor favor, digite sua dúvida em texto para que eu possa te ajudar!' } }];"
+      },
+      "id": "m2e3d4i5-a6s7-8901-abcd-media00000002",
+      "name": "Resposta de Mídia",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        752,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "Chatting",
+        "operation": "Send Text",
+        "session": "={{ $json.session }}",
+        "chatId": "={{ $json.to }}",
+        "reply_to": "=",
+        "text": "={{ $json.responseText }}",
+        "requestOptions": {}
+      },
+      "id": "m3e4d5i6-a7s8-9012-abcd-media00000003",
+      "name": "WAHA - Enviar Alerta Mídia",
+      "type": "n8n-nodes-waha.WAHA",
+      "typeVersion": 202411,
+      "position": [
+        960,
+        640
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.isGreeting }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c3d4e5f6-a7b8-9012-cdef-greeting00003",
+      "name": "É saudação?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        752,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const from = $input.first().json.from;\nconst session = $input.first().json.session;\n// O servidor (Docker) roda em UTC -- pega a hora de Brasília explicitamente\nconst hour = parseInt(new Date().toLocaleString('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/Sao_Paulo' }), 10) % 24;\nconst corpo = 'Bem-vindo à LongView 🏢\\n\\nSou o assistente virtual e estou aqui para te ajudar com informações sobre nossos empreendimentos de alto padrão.\\n\\nComo posso te auxiliar?';\nconst abertura = hour < 12 ? 'Bom dia!' : hour < 18 ? 'Boa tarde!' : 'Boa noite!';\nreturn [{ json: { to: from, session, responseText: `${abertura} ${corpo}` } }];"
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-greeting00001",
+      "name": "Resposta de Saudação",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "Chatting",
+        "operation": "Send Text",
+        "session": "={{ $json.session }}",
+        "chatId": "={{ $json.to }}",
+        "reply_to": "=",
+        "text": "={{ $json.responseText }}",
+        "requestOptions": {}
+      },
+      "id": "b2c3d4e5-f6a7-8901-bcde-greeting00002",
+      "name": "WAHA - Enviar Saudação",
+      "type": "n8n-nodes-waha.WAHA",
+      "typeVersion": 202411,
+      "position": [
+        1168,
+        832
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "http://qdrant:6333/collections/longview_historico",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ vectors: { size: 768, distance: 'Cosine' } }) }}",
+        "options": {}
+      },
+      "id": "ensure-hist-collection-0001",
+      "name": "Garantir Coleção Histórico",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        352
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "notes": "Dá 409 se a coleção já existe -- normal, segue em frente."
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "http://qdrant:6333/collections/longview_historico/index",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ field_name: 'timestamp', field_schema: 'datetime' }) }}",
+        "options": {}
+      },
+      "id": "ensure-hist-index-0001",
+      "name": "Garantir Índice Timestamp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1168,
+        352
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "notes": "v11: order_by do scroll exige índice no campo timestamp."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://qdrant:6333/collections/longview_historico/points/scroll",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filter: { must: [ { key: 'telefone', match: { value: $('Verificar Estado').first().json.phone } } ] }, limit: 4, order_by: { key: 'timestamp', direction: 'desc' }, with_payload: true, with_vector: false }) }}",
+        "options": {}
+      },
+      "id": "h1s2t3o4-r5i6-c789-0abc-def123456701",
+      "name": "Buscar Histórico Recente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1376,
+        352
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const qdrantResp = $input.first().json;\n// Coleção inexistente ou Qdrant fora: continua como 'sem histórico'\nconst points = qdrantResp.error ? [] : (qdrantResp.result?.points || []);\nconst parsedData = $('Verificar Estado').first().json;\nconst currentMessage = parsedData.message;\nconst sorted = [...points].sort((a, b) => new Date(a.payload.timestamp) - new Date(b.payload.timestamp));\nconst historyLines = sorted.map(p => `Cliente: ${p.payload.pergunta_cliente || ''}\\nAssistente: ${(p.payload.resposta_ia || '').slice(0, 200)}`).join('\\n\\n');\nconst hasHistory = historyLines.trim().length > 0;\nreturn [{ json: { ...parsedData, hasHistory, historyLines, originalMessage: currentMessage } }];"
+      },
+      "id": "h2s3t4o5-r6i7-c890-1abc-def123456702",
+      "name": "Preparar Contexto Histórico",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1584,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.hasHistory }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "new-if-history-1234",
+      "name": "Tem Histórico?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 2,
+        "unit": "seconds"
+      },
+      "id": "w1a2i3t4-r5a6-7890-abcd-wait00000001",
+      "name": "Pausa Anti-Rate Limit 1",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2000,
+        224
+      ],
+      "webhookId": "a3c1e0d2-1111-4b6a-9c11-000000000001"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ system_instruction: { parts: [ { text: 'Você é um reformulador de perguntas. Sua única tarefa é: dado um HISTÓRICO de conversa e uma NOVA PERGUNTA, reescrever a nova pergunta de forma completa e autocontida.\\n\\nREGRAS:\\n- Se a pergunta já for completa, retorne-a sem alterações.\\n- Retorne APENAS a pergunta reformulada.' } ] }, contents: [ { role: 'user', parts: [ { text: 'HISTÓRICO:\\n' + ($json.hasHistory ? $json.historyLines : 'Sem histórico.') + '\\n\\nNOVA PERGUNTA:\\n' + $json.originalMessage + '\\n\\nPERGUNTA REFORMULADA:' } ] } ], generationConfig: { temperature: 0.2, maxOutputTokens: 1024 } }) }}",
+        "options": {}
+      },
+      "id": "h3s4t5o6-r7i8-c901-2abc-def123456703",
+      "name": "Gemini - Reformular Pergunta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2208,
+        224
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const geminiResp = $input.first().json;\nconst contextData = $('Preparar Contexto Histórico').first().json;\n// Se não passou pela reformulação (sem histórico) ou ela falhou, usa a pergunta original\nconst reformulada = (!geminiResp.error && geminiResp.candidates?.[0]?.content?.parts?.[0]?.text?.trim()) || contextData.originalMessage;\nreturn [{ json: { ...contextData, message: reformulada, messageOriginal: contextData.originalMessage } }];"
+      },
+      "id": "h4s5t6o7-r8i9-c012-3abc-def123456704",
+      "name": "Montar Query Enriquecida",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2416,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'models/gemini-embedding-001', content: { parts: [ { text: $json.message } ] }, taskType: 'RETRIEVAL_QUERY' }) }}",
+        "options": {}
+      },
+      "id": "72f26dc6-613c-490a-8c94-f44acf9095d3",
+      "name": "Gemini - Embedding",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2624,
+        352
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "notes": "v11: gemini-embedding-001 -- tem que ser o mesmo modelo usado no upload dos PDFs."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://qdrant:6333/collections/longview_docs/points/search",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ vector: $json.embedding?.values || [], limit: 5, with_payload: true }) }}",
+        "options": {}
+      },
+      "id": "4d73bbb9-c535-494d-aff5-7bcdc36bd011",
+      "name": "Busca nos PDFs (RAG)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2832,
+        352
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const qdrantResult = $input.first().json;\nconst apiFalhou = !!qdrantResult.error;\nconst results = apiFalhou ? [] : (qdrantResult.result || []);\nconst prevNode = $('Montar Query Enriquecida').first().json;\n// Ajuste fino: se responder pouco, baixe; se responder coisa errada, suba.\nconst MIN_SCORE = 0.60;\nconst validResults = results.filter(r => r.score >= MIN_SCORE);\nconst hasContext = validResults.length > 0;\nconst topScore = results.length > 0 ? results[0].score : 0;\n// O nó Qdrant do n8n (LangChain) grava o texto em payload.content\nconst contextText = validResults.map(r => `Documento: ${r.payload?.metadata?.source || 'Material LongView'}\\nTrecho: ${r.payload?.content || r.payload?.text || r.payload?.pageContent || ''}\\n(Relevância: ${(r.score * 100).toFixed(0)}%)`).join('\\n\\n---\\n\\n');\nreturn [{ json: { ...prevNode, hasContext, contextText, topScore, shouldHandoff: !hasContext, handoffReason: apiFalhou ? 'erro_tecnico_api' : (!hasContext ? 'sem_contexto_suficiente' : null) } }];"
+      },
+      "id": "e32f388c-dcf4-41fe-9ac9-ec7c97943d2f",
+      "name": "Validação de Confiança",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3040,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.shouldHandoff }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4d3520de-f95f-4cd6-a006-a2939530facd",
+      "name": "Passou na Validação?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3248,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 2,
+        "unit": "seconds"
+      },
+      "id": "w1a2i3t4-r5a6-7890-abcd-wait00000002",
+      "name": "Pausa Anti-Rate Limit 2",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3456,
+        528
+      ],
+      "webhookId": "a3c1e0d2-1111-4b6a-9c11-000000000002"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ system_instruction: { parts: [ { text: 'Você é o assistente virtual da LongView, construtora de empreendimentos de alto padrão.\\n\\nSUA ÚNICA FUNÇÃO: reformular o TRECHO abaixo com linguagem acolhedora, elegante e gramaticalmente perfeita para responder à PERGUNTA DO CLIENTE.\\n\\nREGRAS ABSOLUTAS:\\n1. Use SOMENTE as informações presentes no TRECHO fornecido.\\n2. NUNCA invente valores, datas ou dados ausentes.\\n3. NUNCA use conhecimento geral.\\n4. Seja cordial e breve. Máximo 4 frases.\\n5. Não mencione que é IA.\\n\\nFORMATO DE SAÍDA: responda SEMPRE e SOMENTE com um JSON válido, sem markdown e sem texto fora do JSON, no formato exato:\\n{\"status\": \"respondido\", \"texto\": \"sua resposta ao cliente aqui\"}\\n\\nSe o TRECHO não contiver a resposta para a pergunta, use:\\n{\"status\": \"sem_contexto\", \"texto\": \"Não tenho essa informação nos nossos materiais. Vou acionar um especialista LongView para te atender com mais detalhes.\"}' } ] }, contents: [ { role: 'user', parts: [ { text: 'TRECHO EXTRAÍDO:\\n' + $json.contextText + '\\n\\n---\\n\\nPERGUNTA DO CLIENTE:\\n' + $json.messageOriginal } ] } ], generationConfig: { temperature: 0.2, maxOutputTokens: 2048, responseMimeType: 'application/json' } }) }}",
+        "options": {}
+      },
+      "id": "967b6ccb-6608-4204-8cfc-56763e2b8585",
+      "name": "IA Reescreve (SEM criar)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3664,
+        528
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ (() => { try { const t = ($json.candidates?.[0]?.content?.parts?.[0]?.text || '{}').replace(/^```(?:json)?\\s*/i, '').replace(/```\\s*$/, ''); return JSON.parse(t).status || 'erro_parse'; } catch (e) { return 'erro_parse'; } })() }}",
+              "rightValue": "respondido",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            },
+            {
+              "id": "3",
+              "leftValue": "={{ !!$json.error }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "new-if-fallback-1234",
+      "name": "Falhou ao Responder?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3872,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// v11: número fixo aqui ($env costuma ser bloqueado no Code node)\nconst ATTENDANT_PHONE = '5548999999999'; // <<< TROQUE pelo número do atendente (só dígitos, com 55 + DDD)\nconst attendantChatId = ATTENDANT_PHONE.replace(/\\D/g, '') + '@c.us';\n\nconst state = $('Verificar Estado').first().json;\nconst from = state.from;\nconst session = state.session;\nconst question = state.message;\nconst clientId = from.split('@')[0];\nconst isCritical = state.isCritical || false;\n\n// No caminho 'assunto crítico' o RAG não roda, então esse nó pode não existir\nlet topScore = 0;\ntry { topScore = $('Validação de Confiança').first().json.topScore || 0; } catch (e) { topScore = 0; }\n\nconst inputData = $input.first().json;\nconst apiFalhou = !!inputData.error;\nconst handoffReason = isCritical\n  ? 'assunto_critico'\n  : (apiFalhou ? 'erro_tecnico_api' : (inputData.handoffReason || 'ia_rejeitou_contexto'));\n\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.humanHandoff) staticData.humanHandoff = {};\nconst alreadyInHandoff = !!staticData.humanHandoff[from];\nstaticData.humanHandoff[from] = { since: new Date().toISOString(), reason: handoffReason };\n\nconst reasonLabel = {\n  assunto_critico: '🔴 Assunto crítico (jurídico/rescisão/procon)',\n  sem_contexto_suficiente: '🟡 Fora da base de conhecimento',\n  sem_contexto: '🟡 Fora da base de conhecimento',\n  ia_rejeitou_contexto: '🟠 IA julgou trecho insuficiente',\n  erro_tecnico_api: '🔴 Falha técnica ao gerar resposta (API fora do ar/limite atingido)'\n}[handoffReason] || '🟡 Motivo não identificado';\n\nconst attendantMsg = alreadyInHandoff\n  ? `📩 *Nova mensagem — cliente em atendimento*\\n\\n*Cliente:* ${clientId}\\n*Mensagem:* \"${question}\"`\n  : `🔔 *Novo Transbordo — LongView*\\n\\n*Cliente:* ${clientId}\\n*Última mensagem:* \"${question}\"\\n*Motivo:* ${reasonLabel}\\n*Score RAG:* ${(topScore * 100).toFixed(0)}%\\n*Horário:* ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}\\n\\nPara reativar a IA depois de atender, mande para este número:\\n#bot ${clientId}`;\n\nreturn [{ json: {\n  from, session,\n  clientMessage: alreadyInHandoff ? null : 'Compreendo perfeitamente. Estou transferindo você agora para um dos nossos especialistas LongView para garantir o melhor atendimento. Em breve entraremos em contato! 🏢',\n  attendantMessage: attendantMsg, attendantPhone: attendantChatId, handoffReason, topScore, alreadyInHandoff\n} }];"
+      },
+      "id": "d88a2580-928c-4a32-b4de-095d889f31a3",
+      "name": "Preparar Transbordo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3872,
+        64
+      ],
+      "notes": "v11: TROQUE o ATTENDANT_PHONE (o mesmo do nó Parsear)."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.clientMessage }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "chk-clientmsg-000000000001",
+      "name": "Tem Mensagem Para Cliente?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4080,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "Chatting",
+        "operation": "Send Text",
+        "session": "={{ $json.session }}",
+        "chatId": "={{ $json.from }}",
+        "reply_to": "=",
+        "text": "={{ $json.clientMessage }}",
+        "requestOptions": {}
+      },
+      "id": "e2a72c98-59f0-4319-8a36-fa076d8d1ae3",
+      "name": "WAHA - Avisar Cliente",
+      "type": "n8n-nodes-waha.WAHA",
+      "typeVersion": 202411,
+      "position": [
+        4288,
+        -32
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "resource": "Chatting",
+        "operation": "Send Text",
+        "session": "={{ $('Preparar Transbordo').first().json.session }}",
+        "chatId": "={{ $('Preparar Transbordo').first().json.attendantPhone }}",
+        "reply_to": "=",
+        "text": "={{ $('Preparar Transbordo').first().json.attendantMessage }}",
+        "requestOptions": {}
+      },
+      "id": "99e6bb28-135b-4eaf-aad2-638b7c0cb9cf",
+      "name": "WAHA - Notificar Atendente",
+      "type": "n8n-nodes-waha.WAHA",
+      "typeVersion": 202411,
+      "position": [
+        4496,
+        64
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const transbordoData = $('Preparar Transbordo').first().json;\nconst stateNode = $('Verificar Estado').first().json;\nconst phone = transbordoData.from.split('@')[0];\nconst timestamp = new Date().toISOString();\nconst vector = Array(768).fill(0); vector[0] = 1;\nconst payload = { points: [{ id: Date.now(), vector, payload: { tipo: 'transbordo', telefone: phone, sessao: stateNode.session || 'default', pergunta_cliente: stateNode.message || '', resposta_ia: '[TRANSBORDO]', motivo_transbordo: transbordoData.handoffReason || 'desconhecido', score_relevancia: transbordoData.topScore || 0, timestamp, data_hora_br: new Date(timestamp).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) } }] };\nreturn [{ json: { payload } }];"
+      },
+      "id": "d3e4f5a6-b7c8-9012-cdef-123456789012",
+      "name": "Preparar Log Transbordo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4704,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "http://qdrant:6333/collections/longview_historico/points",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {}
+      },
+      "id": "e4f5a6b7-c8d9-0123-defa-234567890123",
+      "name": "Salvar Log Transbordo (Qdrant)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4912,
+        64
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const geminiResponse = $('IA Reescreve (SEM criar)').first().json;\nconst stateNode = $('Verificar Estado').first().json;\nconst validacao = $('Validação de Confiança').first().json;\nconst rawText = geminiResponse.candidates?.[0]?.content?.parts?.[0]?.text || '';\nconst fallback = 'Desculpe, ocorreu um erro ao processar sua mensagem. Um de nossos especialistas entrará em contato.';\nlet responseText;\ntry {\n  const clean = rawText.replace(/^```(?:json)?\\s*/i, '').replace(/```\\s*$/, '');\n  responseText = JSON.parse(clean).texto || fallback;\n} catch (e) {\n  responseText = fallback;\n}\nreturn [{ json: { to: stateNode.from, phone: stateNode.phone, session: stateNode.session, responseText: responseText.trim(), originalMessage: stateNode.message, timestamp: stateNode.timestamp || new Date().toISOString(), topScore: validacao.topScore || 0, contextText: validacao.contextText || '' } }];"
+      },
+      "id": "edc50bfc-1834-4cf1-a896-e03a21e52b7d",
+      "name": "Extrair Texto Formatado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4080,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "Chatting",
+        "operation": "Send Text",
+        "session": "={{ $json.session }}",
+        "chatId": "={{ $json.to }}",
+        "reply_to": "=",
+        "text": "={{ $json.responseText }}",
+        "requestOptions": {}
+      },
+      "id": "a7bb7193-6940-43c5-af6f-1586af4bef85",
+      "name": "Responder (WAHA)",
+      "type": "n8n-nodes-waha.WAHA",
+      "typeVersion": 202411,
+      "position": [
+        4288,
+        640
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Extrair Texto Formatado').first().json;\nconst phone = data.phone || String(data.to || '').split('@')[0] || 'desconhecido';\nconst timestamp = data.timestamp || new Date().toISOString();\nconst vector = Array(768).fill(0); vector[0] = 1;\nconst payload = { points: [{ id: Date.now(), vector, payload: { tipo: 'conversa_ia', telefone: phone, sessao: data.session || 'default', pergunta_cliente: data.originalMessage || '', resposta_ia: data.responseText || '', contexto_usado: data.contextText || '', score_relevancia: data.topScore || 0, timestamp, data_hora_br: new Date(timestamp).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) } }] };\nreturn [{ json: { payload, phone, timestamp } }];"
+      },
+      "id": "b1c2d3e4-f5a6-7890-abcd-ef1234567890",
+      "name": "Preparar Log Histórico",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4496,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "http://qdrant:6333/collections/longview_historico/points",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {}
+      },
+      "id": "c2d3e4f5-a6b7-8901-bcde-f12345678901",
+      "name": "Salvar Histórico (Qdrant)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4704,
+        640
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Bot em modo silêncio — atendente humano está respondendo\nreturn [{ json: { silencio: true, from: $input.first().json.from } }];"
+      },
+      "id": "silencio-node-00000000001",
+      "name": "Silêncio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        336,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Evento que não é mensagem de cliente (ack, grupo, própria, status) — ignorar\nreturn [];"
+      },
+      "id": "ignorar-node-00000000001",
+      "name": "Ignorar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -304,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "path": "upload-pdf-longview",
+        "formTitle": "Alimentar Base de Dados LongView",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Documento (PDF)",
+              "fieldType": "file",
+              "acceptFileTypes": ".pdf",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b09cacd2-9bc2-46ce-9ec3-91db810e1ad7",
+      "name": "Formulário de Upload",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2,
+      "position": [
+        -928,
+        -400
+      ],
+      "webhookId": "0f6e2a51-2222-4c3b-8d22-000000000001"
+    },
+    {
+      "parameters": {
+        "jsCode": "const binaryData = $input.first().binary;\nconst binaryKey = Object.keys(binaryData || {})[0] || 'file';\nconst fileName = binaryData?.[binaryKey]?.fileName || 'documento.pdf';\nconst fileNameClean = fileName.replace(/\\.pdf$/i, '');\nreturn [{ json: { source: fileNameClean, fileName, uploadedAt: new Date().toISOString() }, binary: binaryData }];"
+      },
+      "id": "f5a6b7c8-d9e0-1234-efab-345678901234",
+      "name": "Preparar Metadados PDF",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -672,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "qdrantCollection": "longview_docs",
+        "options": {
+          "metadata": "={{ { source: $('Preparar Metadados PDF').first().json.source, fileName: $('Preparar Metadados PDF').first().json.fileName, uploadedAt: $('Preparar Metadados PDF').first().json.uploadedAt } }}"
+        }
+      },
+      "id": "12089ec3-f422-4c01-a769-3d2dcdfd1756",
+      "name": "Salvar no Qdrant",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1,
+      "position": [
+        -416,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "dataType": "binary",
+        "binaryMode": "allInputData",
+        "loader": "pdfLoader",
+        "textSplittingMode": "custom",
+        "options": {}
+      },
+      "id": "afeb6146-3dd2-42c5-9ff1-aa1fe8442104",
+      "name": "Ler PDF (Extrair Texto)",
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1.1,
+      "position": [
+        -256,
+        -200
+      ],
+      "notes": "v11: modo BINÁRIO + loader de PDF (antes lia o JSON, não o PDF)."
+    },
+    {
+      "parameters": {
+        "chunkSize": 1800,
+        "chunkOverlap": 250,
+        "options": {}
+      },
+      "id": "11c6f604-fcf6-4c2a-87b1-8c70e9f13eac",
+      "name": "Fatiar Texto",
+      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+      "typeVersion": 1,
+      "position": [
+        -256,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-embedding-001"
+      },
+      "id": "f9915c6c-72a6-4602-b2c1-1e8eb8171bbe",
+      "name": "Gemini Embeddings",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -416,
+        -200
+      ],
+      "notes": "v11: gemini-embedding-001 -- igual ao nó 'Gemini - Embedding' da busca."
+    },
+    {
+      "parameters": {
+        "path": "upload-tabela-longview",
+        "formTitle": "Alimentar Base — Tabelas",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Documento",
+              "fieldType": "file",
+              "acceptFileTypes": ".pdf",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Tipo de documento",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Tabela de Preços"
+                  },
+                  {
+                    "option": "Quadro de Áreas"
+                  }
+                ]
+              },
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f0rm1str2-u3t4-5678-abcd-tabela0000001",
+      "name": "Formulário Upload Estruturado",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2,
+      "position": [
+        -928,
+        -864
+      ],
+      "webhookId": "0f6e2a51-2222-4c3b-8d22-000000000002"
+    },
+    {
+      "parameters": {
+        "jsCode": "const binaryData = $input.first().binary;\nconst binaryKey = Object.keys(binaryData || {})[0] || 'file';\nconst fileName = binaryData?.[binaryKey]?.fileName || 'tabela.pdf';\nconst fileNameClean = fileName.replace(/\\.(pdf|csv|txt)$/i, '');\nconst tipoDoc = $input.first().json['Tipo de documento'] || 'Documento';\nreturn [{ json: { source: fileNameClean, fileName, tipoDoc, isStructured: true, uploadedAt: new Date().toISOString() }, binary: binaryData }];"
+      },
+      "id": "f1rm2str3-u4t5-6789-abcd-tabela0000002",
+      "name": "Preparar Metadados Tabela",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -672,
+        -864
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "qdrantCollection": "longview_docs",
+        "options": {
+          "metadata": "={{ { source: $('Preparar Metadados Tabela').first().json.source, fileName: $('Preparar Metadados Tabela').first().json.fileName, tipoDoc: $('Preparar Metadados Tabela').first().json.tipoDoc, isStructured: true } }}"
+        }
+      },
+      "id": "f5rm6str7-u8t9-0123-abcd-tabela0000006",
+      "name": "Salvar Tabela no Qdrant",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1,
+      "position": [
+        -416,
+        -864
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-embedding-001"
+      },
+      "id": "f6rm7str8-u9t0-1234-abcd-tabela0000007",
+      "name": "Gemini Embeddings Estruturado",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -416,
+        -688
+      ]
+    },
+    {
+      "parameters": {
+        "dataType": "binary",
+        "binaryMode": "allInputData",
+        "loader": "pdfLoader",
+        "textSplittingMode": "custom",
+        "options": {}
+      },
+      "id": "f3rm4str5-u6t7-8901-abcd-tabela0000004",
+      "name": "Ler PDF Estruturado",
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1.1,
+      "position": [
+        -256,
+        -688
+      ]
+    },
+    {
+      "parameters": {
+        "chunkSize": 800,
+        "chunkOverlap": 150,
+        "options": {}
+      },
+      "id": "f4rm5str6-u7t8-9012-abcd-tabela0000005",
+      "name": "Fatiar Texto Estruturado",
+      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+      "typeVersion": 1,
+      "position": [
+        -256,
+        -528
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "WAHA - Webhook": {
+      "main": [
+        [
+          {
+            "node": "Parsear & Classificador Inicial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear & Classificador Inicial": {
+      "main": [
+        [
+          {
+            "node": "Mensagem válida?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mensagem válida?": {
+      "main": [
+        [
+          {
+            "node": "É reativação?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignorar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "É reativação?": {
+      "main": [
+        [
+          {
+            "node": "Reativar IA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verificar Estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reativar IA": {
+      "main": [
+        [
+          {
+            "node": "Confirmar Reativação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar Estado": {
+      "main": [
+        [
+          {
+            "node": "Em Atendimento Humano?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Em Atendimento Humano?": {
+      "main": [
+        [
+          {
+            "node": "Silêncio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Classificador: É Crítico?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classificador: É Crítico?": {
+      "main": [
+        [
+          {
+            "node": "Preparar Transbordo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "É mídia?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "É mídia?": {
+      "main": [
+        [
+          {
+            "node": "Resposta de Mídia",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "É saudação?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resposta de Mídia": {
+      "main": [
+        [
+          {
+            "node": "WAHA - Enviar Alerta Mídia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "É saudação?": {
+      "main": [
+        [
+          {
+            "node": "Resposta de Saudação",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Garantir Coleção Histórico",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resposta de Saudação": {
+      "main": [
+        [
+          {
+            "node": "WAHA - Enviar Saudação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Garantir Coleção Histórico": {
+      "main": [
+        [
+          {
+            "node": "Garantir Índice Timestamp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Garantir Índice Timestamp": {
+      "main": [
+        [
+          {
+            "node": "Buscar Histórico Recente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Histórico Recente": {
+      "main": [
+        [
+          {
+            "node": "Preparar Contexto Histórico",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Contexto Histórico": {
+      "main": [
+        [
+          {
+            "node": "Tem Histórico?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tem Histórico?": {
+      "main": [
+        [
+          {
+            "node": "Pausa Anti-Rate Limit 1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Montar Query Enriquecida",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pausa Anti-Rate Limit 1": {
+      "main": [
+        [
+          {
+            "node": "Gemini - Reformular Pergunta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini - Reformular Pergunta": {
+      "main": [
+        [
+          {
+            "node": "Montar Query Enriquecida",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar Query Enriquecida": {
+      "main": [
+        [
+          {
+            "node": "Gemini - Embedding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini - Embedding": {
+      "main": [
+        [
+          {
+            "node": "Busca nos PDFs (RAG)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Busca nos PDFs (RAG)": {
+      "main": [
+        [
+          {
+            "node": "Validação de Confiança",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validação de Confiança": {
+      "main": [
+        [
+          {
+            "node": "Passou na Validação?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Passou na Validação?": {
+      "main": [
+        [
+          {
+            "node": "Preparar Transbordo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Pausa Anti-Rate Limit 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pausa Anti-Rate Limit 2": {
+      "main": [
+        [
+          {
+            "node": "IA Reescreve (SEM criar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IA Reescreve (SEM criar)": {
+      "main": [
+        [
+          {
+            "node": "Falhou ao Responder?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Falhou ao Responder?": {
+      "main": [
+        [
+          {
+            "node": "Preparar Transbordo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extrair Texto Formatado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Transbordo": {
+      "main": [
+        [
+          {
+            "node": "Tem Mensagem Para Cliente?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tem Mensagem Para Cliente?": {
+      "main": [
+        [
+          {
+            "node": "WAHA - Avisar Cliente",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "WAHA - Notificar Atendente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WAHA - Avisar Cliente": {
+      "main": [
+        [
+          {
+            "node": "WAHA - Notificar Atendente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WAHA - Notificar Atendente": {
+      "main": [
+        [
+          {
+            "node": "Preparar Log Transbordo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Log Transbordo": {
+      "main": [
+        [
+          {
+            "node": "Salvar Log Transbordo (Qdrant)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extrair Texto Formatado": {
+      "main": [
+        [
+          {
+            "node": "Responder (WAHA)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder (WAHA)": {
+      "main": [
+        [
+          {
+            "node": "Preparar Log Histórico",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Log Histórico": {
+      "main": [
+        [
+          {
+            "node": "Salvar Histórico (Qdrant)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formulário de Upload": {
+      "main": [
+        [
+          {
+            "node": "Preparar Metadados PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Metadados PDF": {
+      "main": [
+        [
+          {
+            "node": "Salvar no Qdrant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ler PDF (Extrair Texto)": {
+      "ai_document": [
+        [
+          {
+            "node": "Salvar no Qdrant",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fatiar Texto": {
+      "ai_textSplitter": [
+        [
+          {
+            "node": "Ler PDF (Extrair Texto)",
+            "type": "ai_textSplitter",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Embeddings": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Salvar no Qdrant",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formulário Upload Estruturado": {
+      "main": [
+        [
+          {
+            "node": "Preparar Metadados Tabela",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Metadados Tabela": {
+      "main": [
+        [
+          {
+            "node": "Salvar Tabela no Qdrant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ler PDF Estruturado": {
+      "ai_document": [
+        [
+          {
+            "node": "Salvar Tabela no Qdrant",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fatiar Texto Estruturado": {
+      "ai_textSplitter": [
+        [
+          {
+            "node": "Ler PDF Estruturado",
+            "type": "ai_textSplitter",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Embeddings Estruturado": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Salvar Tabela no Qdrant",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo"
+  },
+  "versionId": "longview-v11",
+  "tags": []
+}
