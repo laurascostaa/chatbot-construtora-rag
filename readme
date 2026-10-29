@@ -1,0 +1,16 @@
+Sim, elas conseguem rodar. Mas o workflow sozinho não leva tudo: credenciais, base de documentos e a conexão com o WhatsApp ficam na sua máquina. Cada uma precisa fazer o seguinte:
+
+1. **Subir n8n, WAHA e Redis no Docker.** Use o docker-compose do manual, deixando `WHATSAPP_HOOK_URL` comentada. O n8n precisa ser uma versão recente, igual ou mais nova que a sua. Este fluxo usa nós novos (AI Agent v3.1, botão Publish) e pode dar erro ao importar numa versão antiga.
+2. **Instalar o nó da WAHA** em Settings → Community Nodes (`@devlikeapro/n8n-nodes-waha`). Sem ele, os nós de envio aparecem como "não instalado".
+3. **Importar o workflow.** Para passar, prefira o menu **⋯ → Download**, que gera o `.json` completo, em vez de copiar e colar os nós.
+4. **Criar as três credenciais** e associar cada uma aos nós:
+   - **Gemini**, com a chave de API delas no AI Studio: usada no Chat Model e nos dois Embeddings;
+   - **Redis** (host `redis`, porta 6379): usada no Redis Chat Memory e no Contar mensagem;
+   - **WAHA** (`http://waha:3000`): usada no Send Seen e no Send a text message.
+5. **Conectar o WhatsApp** no painel da WAHA (localhost:3000), escaneando o QR Code. No webhook da sessão, coloquem `http://n8n:5678/webhook/webhook` com só o evento **message**.
+6. **Clicar em Publish.**
+7. **Enviar os PDFs.** A base de documentos vem vazia, então cada uma envia os PDFs pelo formulário. O link aparece no nó "Upload de documentos", na aba Production URL. Abram com `localhost` no lugar de `host.docker.internal`.
+
+**Atenção:** cada uma deve conectar um **número de WhatsApp diferente**. Se duas instâncias estiverem ligadas ao mesmo número ao mesmo tempo, as duas respondem e o cliente recebe respostas em dobro. A proteção contra duplicadas não resolve esse caso, porque cada uma tem o próprio Redis.
+
+Esse passo a passo também está na Parte 3 do manual (itens 2 a 5), então dá para mandar o documento junto com o `.json`.
