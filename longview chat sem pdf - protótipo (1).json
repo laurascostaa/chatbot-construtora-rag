@@ -1,0 +1,648 @@
+{
+  "name": "longview chat sem pdf - protótipo",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "webhook",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "938525d4-d1ec-49f3-8d20-12cb3f5e8a5a",
+      "name": "Webhook",
+      "webhookId": "85b5a9f3-afad-4e73-abff-bab313943b58"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b39e7a98-2497-4349-826c-9be9420f6273",
+              "name": "session",
+              "value": "={{ $json.body.session }}",
+              "type": "string"
+            },
+            {
+              "id": "350148e8-f7b8-4200-a751-61e684e9b29d",
+              "name": "chatId",
+              "value": "={{ $json.body.payload.from }}",
+              "type": "string"
+            },
+            {
+              "id": "f3e5b947-f25f-4c15-939d-d3172d6c1c0f",
+              "name": "pushName",
+              "value": "={{ $json.body.payload._data.Info.PushName }}",
+              "type": "string"
+            },
+            {
+              "id": "434ae168-9c93-43eb-a85f-572fa0ec2a26",
+              "name": "payload_id",
+              "value": "={{ $json.body.payload.id }}",
+              "type": "string"
+            },
+            {
+              "id": "62befe6c-17bb-43b3-8422-94467ec7e09d",
+              "name": "event",
+              "value": "={{ $json.body.event }}",
+              "type": "string"
+            },
+            {
+              "id": "79ee15aa-fc05-46b0-8a6b-445ddbedff39",
+              "name": "message",
+              "value": "={{ $json.body.payload.body || $json.body.payload._data?.Message?.conversation || $json.body.payload._data?.Message?.extendedTextMessage?.text || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "046cbf40-779b-429f-993e-9f5360d72b13",
+              "name": "fromMe",
+              "value": "={{ $json.body.payload.fromMe }}",
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        208,
+        0
+      ],
+      "id": "3d1d2028-5d41-4653-a39f-f073ba9864ce",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ ($json.event === 'message' && $json.fromMe !== true && String($json.message ?? '').trim() !== '' && $json.dedupCount === 1) ? 'message' : 'ignorar' }}",
+                    "rightValue": "message",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "dd0bc5be-073d-47aa-96a3-5060ee9eba39"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        784,
+        0
+      ],
+      "id": "2753ed71-8c95-4ba5-a3e4-e70afe43bf78",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.message }}",
+        "options": {
+          "systemMessage": "=Você é o assistente virtual da LongView Construtora no WhatsApp.\n\nREGRAS ABSOLUTAS:\n1. Responda APENAS com base nos TRECHOS DOS DOCUMENTOS abaixo e no histórico desta conversa.\n2. Se a informação não estiver nos trechos, diga exatamente: \"Não tenho essa informação no momento. Entre em contato com nossa equipe.\"\n3. NUNCA invente valores, prazos, metragens ou condições.\n4. Cumprimentos e mensagens simples (oi, obrigado, tudo bem?) podem ser respondidos normalmente.\n5. Use linguagem profissional e cordial, com mensagens curtas e adequadas ao WhatsApp.\n\nTRECHOS DOS DOCUMENTOS:\n{{ $json.chunks }}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1584,
+        0
+      ],
+      "id": "e4c7ca7f-2261-47f7-9760-4b294f722e9d",
+      "name": "AI Agent",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.5-flash",
+        "options": {
+          "temperature": 0.4
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        1584,
+        352
+      ],
+      "id": "42b16dc2-e362-4a4c-a2e0-25affdf5ca74",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "Y6SPvmrAb7s1rNOn",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ 'v3_' + $json.chatId }}",
+        "sessionTTL": 3600,
+        "contextWindowLength": 10
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryRedisChat",
+      "typeVersion": 1.6,
+      "position": [
+        1680,
+        224
+      ],
+      "id": "765276cb-7535-4a75-a35b-87c319940dfd",
+      "name": "Redis Chat Memory",
+      "credentials": {
+        "redis": {
+          "id": "oUkgwe9OesMG1E7H",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "Chatting",
+        "operation": "Send Seen",
+        "session": "={{ $('Edit Fields').item.json.session }}",
+        "chatId": "={{ $('Edit Fields').item.json.chatId }}",
+        "messageId": "={{ $('Edit Fields').item.json.payload_id }}",
+        "requestOptions": {}
+      },
+      "type": "n8n-nodes-waha.WAHA",
+      "typeVersion": 202411,
+      "position": [
+        1840,
+        0
+      ],
+      "id": "7f9271b6-c1d1-4f3c-9869-ce9869c35644",
+      "name": "Send Seen",
+      "credentials": {
+        "wahaApi": {
+          "id": "sNp18LvaopRDkHib",
+          "name": "WAHA account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "Chatting",
+        "operation": "Send Text",
+        "session": "={{ $('Edit Fields').item.json.session }}",
+        "chatId": "={{ $('Edit Fields').item.json.chatId }}",
+        "reply_to": "=",
+        "text": "={{ $('AI Agent').item.json.output }}",
+        "requestOptions": {}
+      },
+      "type": "n8n-nodes-waha.WAHA",
+      "typeVersion": 202411,
+      "position": [
+        2000,
+        0
+      ],
+      "id": "22d45de4-0887-4b8f-a5e4-9ee5be8abf87",
+      "name": "Send a text message",
+      "credentials": {
+        "wahaApi": {
+          "id": "sNp18LvaopRDkHib",
+          "name": "WAHA account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "formTitle": "Base de conhecimento LongView",
+        "formDescription": "Envie os PDFs que o assistente deve usar para responder os clientes.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Documentos",
+              "fieldType": "file",
+              "acceptFileTypes": ".pdf",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Upload de documentos",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        816
+      ],
+      "webhookId": "0ae7fd12-b0e6-45a1-9c7a-19e5fa7c62ad",
+      "id": "3c11f231-9325-4105-aec0-03152d0a9014"
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "memoryKey": "longview_docs"
+      },
+      "name": "Salvar na base",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreInMemory",
+      "typeVersion": 1.1,
+      "position": [
+        752,
+        816
+      ],
+      "id": "3778c147-4ee4-4c56-be01-d35acc1da0d4"
+    },
+    {
+      "parameters": {},
+      "name": "Embeddings (upload)",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        672,
+        1024
+      ],
+      "id": "b5ded010-1ae1-44fd-a110-65a928a95b75",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "Y6SPvmrAb7s1rNOn",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonMode": "expressionData",
+        "jsonData": "={{ $json.text }}",
+        "textSplittingMode": "custom",
+        "options": {}
+      },
+      "name": "Preparar texto",
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1.1,
+      "position": [
+        912,
+        1024
+      ],
+      "id": "9a910b19-e068-4480-9161-7542e5717dd8"
+    },
+    {
+      "parameters": {
+        "chunkOverlap": 200,
+        "options": {}
+      },
+      "name": "Dividir em trechos",
+      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+      "typeVersion": 1,
+      "position": [
+        992,
+        1232
+      ],
+      "id": "35545f34-5638-4608-aaaa-3b1c9d319d0a"
+    },
+    {
+      "parameters": {
+        "mode": "load",
+        "memoryKey": "longview_docs",
+        "prompt": "={{ $json.message }}",
+        "topK": 6
+      },
+      "name": "Buscar trechos",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreInMemory",
+      "typeVersion": 1.1,
+      "position": [
+        1008,
+        0
+      ],
+      "id": "2118703e-e923-4c58-b3b8-c50af1ef1565",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {},
+      "name": "Embeddings (busca)",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1008,
+        208
+      ],
+      "id": "5e29b1a8-9732-49a0-a961-2fa936fc7e45",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "Y6SPvmrAb7s1rNOn",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "incr",
+        "key": "={{ 'dedup_' + String($json.payload_id || '').replace(/[^A-Za-z0-9]/g, '') }}",
+        "expire": true,
+        "ttl": 300
+      },
+      "name": "Contar mensagem",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        432,
+        0
+      ],
+      "id": "10b32067-41cb-4da5-b04e-8a9f34b39099",
+      "credentials": {
+        "redis": {
+          "id": "oUkgwe9OesMG1E7H",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const base = $('Edit Fields').item.json;\nconst key = 'dedup_' + String(base.payload_id || '').replace(/[^A-Za-z0-9]/g, '');\nconst count = Number($input.item.json[key] ?? 0);\nreturn { json: { ...base, dedupCount: count } };"
+      },
+      "name": "Marcar duplicadas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        656,
+        0
+      ],
+      "id": "d5c3fbcd-e4d9-49a9-9097-31f3a19f7919"
+    },
+    {
+      "parameters": {
+        "jsCode": "const out = [];\nfor (const item of $input.all()) {\n  for (const bin of Object.values(item.binary || {})) {\n    out.push({ json: { arquivo: bin.fileName }, binary: { data: bin } });\n  }\n}\nreturn out;"
+      },
+      "name": "Separar arquivos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        816
+      ],
+      "id": "3384bb33-038d-4c40-ab94-38c40cb17656"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
+      },
+      "name": "Extrair texto do PDF",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        448,
+        816
+      ],
+      "id": "1f2f0a8d-21bb-4f57-b788-a06ac8cce761"
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $('Switch').first().json;\nconst trechos = $input.all().map(i => i.json.document?.pageContent).filter(Boolean);\nconst chunks = trechos.length ? trechos.map((t, i) => `[Trecho ${i + 1}]\\n${t}`).join('\\n\\n') : '(nenhum trecho encontrado nos documentos)';\nreturn [{ json: { ...base, chunks } }];"
+      },
+      "name": "Juntar trechos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "3b620ac5-22d4-44ae-86cb-e2cc14f5df24"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Contar mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Buscar trechos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis Chat Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Send Seen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Seen": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload de documentos": {
+      "main": [
+        [
+          {
+            "node": "Separar arquivos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings (upload)": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Salvar na base",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dividir em trechos": {
+      "ai_textSplitter": [
+        [
+          {
+            "node": "Preparar texto",
+            "type": "ai_textSplitter",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings (busca)": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Buscar trechos",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contar mensagem": {
+      "main": [
+        [
+          {
+            "node": "Marcar duplicadas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Marcar duplicadas": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Separar arquivos": {
+      "main": [
+        [
+          {
+            "node": "Extrair texto do PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extrair texto do PDF": {
+      "main": [
+        [
+          {
+            "node": "Salvar na base",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar texto": {
+      "ai_document": [
+        [
+          {
+            "node": "Salvar na base",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar trechos": {
+      "main": [
+        [
+          {
+            "node": "Juntar trechos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Juntar trechos": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "80bad379-21ab-46cf-a703-0695ea1ad396",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "ea7602dc96def0e7bcddca90afc48dd27fc1e0f91d35f80032cdda4b45abb6c9"
+  },
+  "id": "9JmPQ7ItUQ2iN4BH",
+  "tags": [
+    {
+      "updatedAt": "2026-05-24T19:17:13.119Z",
+      "createdAt": "2026-05-24T19:17:13.119Z",
+      "id": "0YR3SoAvCn1FjMB7",
+      "name": "longview1"
+    }
+  ]
+}
