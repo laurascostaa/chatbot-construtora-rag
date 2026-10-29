@@ -1,4 +1,4 @@
-Sim, elas conseguem rodar. Mas o workflow sozinho não leva tudo: credenciais, base de documentos e a conexão com o WhatsApp ficam na sua máquina. Cada uma precisa fazer o seguinte:
+Cada uma precisa fazer o seguinte:
 
 1. **Subir n8n, WAHA e Redis no Docker.** Use o docker-compose do manual, deixando `WHATSAPP_HOOK_URL` comentada. O n8n precisa ser uma versão recente, igual ou mais nova que a sua. Este fluxo usa nós novos (AI Agent v3.1, botão Publish) e pode dar erro ao importar numa versão antiga.
 2. **Instalar o nó da WAHA** em Settings → Community Nodes (`@devlikeapro/n8n-nodes-waha`). Sem ele, os nós de envio aparecem como "não instalado".
