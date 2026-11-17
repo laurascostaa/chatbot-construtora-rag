@@ -1,4 +1,4 @@
-Passo a Passo do Vídeo:
+Passo a Passo:
 
 1️⃣ Instalar o Docker no seu computador:
 
